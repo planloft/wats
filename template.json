@@ -1,0 +1,33 @@
+{
+	"generate-git-ignore": true,
+	"defaultFiles": {
+		"tsconfig.json": {
+			"compilerOptions": {
+				"target": "es2020",
+				"module": "es2020",
+				"useDefineForClassFields": true,
+				"newLine": "lf",
+				"preserveConstEnums": true,
+				"forceConsistentCasingInFileNames": true,
+				"strict": true,
+				"noImplicitAny": true,
+				"strictNullChecks": true,
+				"strictFunctionTypes": true,
+				"strictBindCallApply": true,
+				"strictPropertyInitialization": true,
+				"noImplicitThis": true,
+				"useUnknownInCatchVariables": true,
+				"alwaysStrict": true,
+				"noUnusedLocals": true,
+				"noUnusedParameters": true,
+				"noUncheckedIndexedAccess": true,
+				"noImplicitOverride": true,
+				"noPropertyAccessFromIndexSignature": true,
+				"paths": {}
+			}
+		},
+		"package.json": {
+			"version": "0.0.1"
+		}
+	}
+}
