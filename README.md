@@ -171,6 +171,14 @@ its name, not just its path.  Your mileage may vary.
 
 ## Releases
 
+### 2021-10-06 v1.0.1
+
+Still pre-release quality, but being actively used elsewhere.
+
+Fixes planloft/wats#2.
+Fixes planloft/wats#5.
+Fixes planloft/wats#4.
+
 ### 2021-10-06 v1.0.0
 
 Initial release: technically it escaped from PLANLOFT labs so it could

@@ -20,12 +20,11 @@ const mod_fs = require('fs');
 const watsJSON_FILE = 'wats.json';
 const PACKAGE_JSON_FILE = 'package.json';
 const TSCONFIG_JSON_FILE = 'tsconfig.json';
-const WAPS_TSCONFIG_JSON_FILE = '.waps.tsconfig.json';
 const TEST_PREFIX = 'test-';
 const JS_SUFFIX = '.js';
 const MODULE_SUFFIX = '.mjs';
 const TS_SUFFIX = '.ts';
-const DECLARE_TS_SUFFIX = '.d.ts';
+const DECLARE_SUFFIX = '.d.ts';
 const WATS_TEMPLATE = require('./template.json');
 const TESTING_DIR = 'testing';
 const DECLARE_DIR = 'declare';
@@ -179,6 +178,40 @@ function requireJSON(target, source) {
 }
 
 function executeIn(currentPath, ...args) {
+  var moduleOnly = false;
+  var localOnly = false;
+  var stages = { "config": true, "build": true, "test": true };
+
+	while (args.length && args[0].startsWith("-")) {
+		var arg = args.shift();
+
+		switch (arg) {
+			case "-l": 
+			case "--local-only":
+				moduleOnly = true;
+				localOnly = true;
+				break;
+			case "-m": 
+			case "--module-only":
+				moduleOnly = true;
+				break;
+			case "-b": 
+			case "--build":
+			  stages = { "config": true, "build": true };
+				break;
+			case "-t": 
+			case "--tidy":
+			  stages = { "config": true, "build": true, "tidy": true };
+				break;
+			case "-C": 
+			case "--config":
+			  stages = { "config": true };
+				break;
+			default:
+				throw new Error("unsupported option: " + arg);
+		}
+	}
+
 	/**
 	 * A map of canonical paths to internal config objects.
 	 * A config is only processed once, so this map is used
@@ -222,9 +255,6 @@ function executeIn(currentPath, ...args) {
 			cloneJSON(WATS_TEMPLATE.defaultFiles["tsconfig.json"]);
 	}
 
-
-	console.log(watsJSON);
-
 	if (basePath === currentPath) {
 		console.log("In base of development tree: doing nothing.");
 		mod_process.exit(1);
@@ -243,189 +273,201 @@ function executeIn(currentPath, ...args) {
 				testing: testing,
 				execName: (testing ? TEST_PREFIX : "") + name,
 				changed: false, // true when this config is out of date
-				depends: [], // a map of modulePath strings dependent upon
+				depends: [], // a list of modulePath strings dependent upon
 			};
 		configMap[modulePath] = config;
 
-		const relativePath = mod_path.relative(basePath, modulePath);
+		const baseSubPath = mod_path.relative(basePath, modulePath);
 		const tsFile = config.execName + TS_SUFFIX;
 		const tsPath = resolvePathIn(modulePath, tsFile);
 
 		config.tsFile = tsFile;
+		config.baseSubPath = baseSubPath;
 
 		if (!mod_fs.existsSync(tsPath)) {
-			console.log("Could not find main", relativePath, "module file", tsPath);
+			console.log("Could not find main", baseSubPath, "module file", tsPath);
 			process.exit(1);
 		}
 
-		const tsConfigJSONPath = resolvePathIn(modulePath, TSCONFIG_JSON_FILE);
-		var tsConfigJSON;
-		var requiredTSConfigJSON = {
-				compilerOptions: {
-					outDir: "./" + RUNTIME_DIR,
-					baseUrl: "./",
-					moduleResolution: "node",
-					resolveJsonModule: true,
-					sourceMap: true,
-				},
-				include: [ "./**/*" + TS_SUFFIX ],
-			};
-
-		if (testing) {
-			mergeJSON(requiredTSConfigJSON, {
+		if (moduleOnly && (modulePath !== currentPath) &&
+				(!testing || (mod_path.relative(modulePath, "..") !== currentPath))) {
+			// assume it has all been built and is available
+		}
+		else if (localOnly && (modulePath !== currentPath)) {
+			// assume it has all been built and is available
+		}
+		else {
+			const tsConfigJSONPath = resolvePathIn(modulePath, TSCONFIG_JSON_FILE);
+			var tsConfigJSON;
+			var requiredTSConfigJSON = {
 					compilerOptions: {
-						declaration: false,
-						paths: {}
+						outDir: "./" + RUNTIME_DIR,
+						baseUrl: "./",
+						moduleResolution: "node",
+						resolveJsonModule: true,
+						sourceMap: true,
 					},
-					exclude: [
-						"./" + RUNTIME_DIR,
-					]
-				});
+					include: [ "./**/*" + TS_SUFFIX ],
+				};
 
-			requiredTSConfigJSON.compilerOptions.paths[name] = [
-					"../" + DECLARE_DIR + "/" + name + DECLARE_TS_SUFFIX,
-				];
-		}
-		else {
-			mergeJSON(requiredTSConfigJSON, {
-					compilerOptions: {
-						declaration: true,
-						declarationDir: "./" + DECLARE_DIR,
-						declarationMap: true,
-					},
-					exclude: [
-						"./" + RUNTIME_DIR,
-						"./" + DECLARE_DIR,
-						"./" + TESTING_DIR,
-					]
-				});
-		}
+			if (testing) {
+				mergeJSON(requiredTSConfigJSON, {
+						compilerOptions: {
+							declaration: false,
+							paths: {}
+						},
+						exclude: [
+							"./" + RUNTIME_DIR,
+						]
+					});
 
-		if (!mod_fs.existsSync(tsConfigJSONPath)) {
-			console.log("Generating missing", tsConfigJSONPath, "this time only.");
-
-			tsConfigJSON = cloneJSON(watsJSON.defaultFiles["tsconfig.json"]);
-
-			mergeJSON(tsConfigJSON, requiredTSConfigJSON);
-
-			writeJSONFile(tsConfigJSONPath, tsConfigJSON);
-
-			config.changed = true;
-		}
-		else {
-			tsConfigJSON = readJSONFile(tsConfigJSONPath);
-
-			requireJSON(tsConfigJSON, requiredTSConfigJSON);
-		}
-
-		config.runtimeJSSubPath = mod_path.join(RUNTIME_DIR,
-			config.execName + JS_SUFFIX),
-		config.runtimeMJSSubPath = mod_path.join(RUNTIME_DIR,
-			config.execName + MODULE_SUFFIX);
-
-		const packageJSONPath = resolvePathIn(modulePath, PACKAGE_JSON_FILE);
-		var packageJSON;
-		var requiredPackageJSON = {
-				name: name,
-				type: "module",
-				main: config.runtimeMJSSubPath,
-			};
-
-		if (!mod_fs.existsSync(packageJSONPath)) {
-			console.log("Generating missing", packageJSONPath, "this time only.");
-
-			packageJSON = cloneJSON(watsJSON.defaultFiles["package.json"]);
-
-			mergeJSON(packageJSON, requiredPackageJSON);
-
-			writeJSONFile(packageJSONPath, packageJSON);
-
-			config.changed = true;
-		}
-		else {
-			packageJSON = readJSONFile(packageJSONPath);
-
-			requireJSON(packageJSON, requiredPackageJSON);
-		}
-
-		if (watsJSON["generate-git-ignore"]) {
-			var gitIgnorePath = resolvePathIn(modulePath, ".gitignore");
-
-			if (!mod_fs.existsSync(gitIgnorePath)) {
-				console.log("Generating missing", gitIgnorePath, "this time only.");
-
-				writeUTF8File(gitIgnorePath,
-					"/node_modules");
+				requiredTSConfigJSON.compilerOptions.paths[name] = [
+						"../" + DECLARE_DIR + "/" + name + DECLARE_SUFFIX,
+					];
 			}
-		}
+			else {
+				mergeJSON(requiredTSConfigJSON, {
+						compilerOptions: {
+							declaration: true,
+							declarationDir: "./" + DECLARE_DIR,
+							declarationMap: true,
+						},
+						exclude: [
+							"./" + RUNTIME_DIR,
+							"./" + DECLARE_DIR,
+							"./" + TESTING_DIR,
+						]
+					});
+			}
 
-		if (packageJSON.dependencies != null) {
-			/*
-				Process dependencies so that they are linked into our modified
-				tsconfig.json and from the node_modules dir.
-			*/
-			const nodeModulesPath = resolvePathIn(modulePath, NODE_MODULES_DIR);
+			if (!mod_fs.existsSync(tsConfigJSONPath)) {
+				console.log("Generating missing", tsConfigJSONPath, "this time only.");
 
-			for (var depend in packageJSON.dependencies) {
-				let dependBasename = mod_path.basename(depend);
+				tsConfigJSON = cloneJSON(watsJSON.defaultFiles["tsconfig.json"]);
 
-				// First, fix node modules.
-				var dependPath = resolvePathIn(basePath, depend);
+				mergeJSON(tsConfigJSON, requiredTSConfigJSON);
 
-				if (!mod_fs.existsSync(nodeModulesPath)) {
-					console.log("Created", nodeModulesPath, "to load/link dependencies.");
-					mod_fs.mkdirSync(nodeModulesPath);
+				writeJSONFile(tsConfigJSONPath, tsConfigJSON);
+
+				config.changed = true;
+			}
+			else {
+				tsConfigJSON = readJSONFile(tsConfigJSONPath);
+
+				requireJSON(tsConfigJSON, requiredTSConfigJSON);
+			}
+
+			config.runtimeJSSubPath = mod_path.join(RUNTIME_DIR,
+				config.execName + JS_SUFFIX),
+			config.runtimeMJSSubPath = mod_path.join(RUNTIME_DIR,
+				config.execName + MODULE_SUFFIX);
+			config.tsConfigJSONPath = tsConfigJSONPath;
+			config.tsConfigJSON = tsConfigJSON;
+
+			const packageJSONPath = resolvePathIn(modulePath, PACKAGE_JSON_FILE);
+			var packageJSON;
+			var requiredPackageJSON = {
+					name: name,
+					type: "module",
+					main: config.runtimeMJSSubPath,
+				};
+
+			if (!mod_fs.existsSync(packageJSONPath)) {
+				console.log("Generating missing", packageJSONPath, "this time only.");
+
+				packageJSON = cloneJSON(watsJSON.defaultFiles["package.json"]);
+
+				mergeJSON(packageJSON, requiredPackageJSON);
+
+				writeJSONFile(packageJSONPath, packageJSON);
+
+				config.changed = true;
+			}
+			else {
+				packageJSON = readJSONFile(packageJSONPath);
+
+				requireJSON(packageJSON, requiredPackageJSON);
+			}
+
+			if (watsJSON["generate-git-ignore"]) {
+				var gitIgnorePath = resolvePathIn(modulePath, ".gitignore");
+
+				if (!mod_fs.existsSync(gitIgnorePath)) {
+					console.log("Generating missing", gitIgnorePath, "this time only.");
+
+					writeUTF8File(gitIgnorePath,
+						"/node_modules");
 				}
+			}
 
-				var linkPath = resolvePathIn(nodeModulesPath, depend);
+			if (packageJSON.dependencies != null) {
+				/*
+					Process dependencies so that they are linked into our modified
+					tsconfig.json and from the node_modules dir.
+				*/
+				const nodeModulesPath = resolvePathIn(modulePath, NODE_MODULES_DIR);
 
-				if (mod_fs.existsSync(dependPath)) {
-					if (!mod_fs.existsSync(linkPath)) {
-						console.log("Linking", linkPath, "for local runtime.");
-						mod_fs.symlinkSync(mod_path.relative(nodeModulesPath, dependPath),
-							linkPath);
+				for (var depend in packageJSON.dependencies) {
+					let dependBasename = mod_path.basename(depend);
+
+					// First, fix node modules.
+					var dependPath = resolvePathIn(basePath, depend);
+
+					if (!mod_fs.existsSync(nodeModulesPath)) {
+						console.log("Created", nodeModulesPath, "to load/link dependencies.");
+						mod_fs.mkdirSync(nodeModulesPath);
 					}
 
-					if (testing && (name === dependBasename)) {
-						// handled already (publicly wired, since its within the module)
+					var linkPath = resolvePathIn(nodeModulesPath, depend);
+
+					if (mod_fs.existsSync(dependPath)) {
+						if (!mod_fs.existsSync(linkPath)) {
+							console.log("Linking", linkPath, "for local runtime.");
+							mod_fs.symlinkSync(mod_path.relative(nodeModulesPath, dependPath),
+								linkPath);
+						}
+
+						if (testing && (name === dependBasename)) {
+							// handled already (publicly wired, since its within the module)
+						}
+						else {
+							// TODO XXXX possibly should be declarationPaths ...?
+							tsConfigJSON.compilerOptions.paths[depend] = [
+									mod_path.relative(modulePath, mod_path.join(dependPath,
+										DECLARE_DIR, dependBasename + DECLARE_SUFFIX)),
+								];
+							config.changed = true;
+							config.depends.push(dependPath);
+						}
 					}
 					else {
-						tsConfigJSON.compilerOptions.paths[depend] = [
-								mod_path.relative(modulePath, mod_path.join(dependPath,
-									DECLARE_DIR, dependBasename + DECLARE_TS_SUFFIX)),
-							];
-						config.depends.push(dependPath);
-					}
-				}
-				else {
-					if (!mod_fs.existsSync(linkPath)) {
-						console.log("Installing", depend, "for local runtime.");
+						if (!mod_fs.existsSync(linkPath)) {
+							console.log("Installing", depend, "for local runtime.");
 
-						mod_child_process.spawnSync("env", [
-								"npm",
-								"--loglevel", "error",
-								"--package-lock", "false",
-								"install",
-								depend + "@" + packageJSON.dependencies[depend],
-							],
-							{
-								cwd: modulePath,
-								stdio: [0, 1, 2],
-							});
+							mod_child_process.spawnSync("env", [
+									"npm",
+									"--loglevel", "error",
+									"--package-lock", "false",
+									"install",
+									depend + "@" + packageJSON.dependencies[depend],
+								],
+								{
+									cwd: modulePath,
+									stdio: [0, 1, 2],
+								});
+						}
 					}
 				}
 			}
-		}
 
-		// TODO urgent find way to make sure we can invoke this ...
-		// or just store in config?
-		const wapsTSConfigJSONFile = resolvePathIn(modulePath,
-			WAPS_TSCONFIG_JSON_FILE);
+			for (var dependPath of config.depends) {
+				configModuleIn(dependPath, mod_path.basename(dependPath), false);
+			}
 
-		writeJSONFile(wapsTSConfigJSONFile, tsConfigJSON);
-
-		for (var dependPath of config.depends) {
-			configModuleIn(dependPath, mod_path.basename(dependPath), false);
+			if (config.changed) {
+				console.log("Editing", tsConfigJSONPath, "for building ...");
+				writeJSONFile(tsConfigJSONPath, tsConfigJSON);
+			}
 		}
 
 		const testingPath = resolvePathIn(modulePath, TESTING_DIR);
@@ -437,9 +479,10 @@ function executeIn(currentPath, ...args) {
 		return (config);
 	}
 
-	function buildModuleIn(modulePath) {
+	function visitModuleIn(modulePath) {
 		const name = mod_path.basename(modulePath);
-		let config;
+		var config;
+		var testing;
 
 		if (name === TESTING_DIR) {
 			const parent = mod_path.dirname(modulePath);
@@ -449,17 +492,34 @@ function executeIn(currentPath, ...args) {
 				mod_process.exit(1);
 			}
 
-			config = buildModuleIn(parent, mod_path.basename(modulePath)).testingConfig;
+			config = visitModuleIn(parent, mod_path.basename(modulePath)).
+				testingConfig;
+
+			testing = true;
 		}
 		else {
 			config = configModuleIn(modulePath, name, false);
+			testing = false;
 		}
 
 		for (var dependPath of config.depends) {
-			buildModuleIn(dependPath);
+			visitModuleIn(dependPath);
 		}
 
-		if (!config.built) {
+		if (!('build' in stages)) {
+			// skip building
+		}
+		else if (moduleOnly && (modulePath !== currentPath)) {
+			// skip building
+		}
+		else if (localOnly && (modulePath !== currentPath)) {
+			// skip building
+		}
+		else if (!config.built) {
+			if (config.building) {
+				throw new Error("dependency loop"); // TODO explain
+			}
+
 			config.building = true;
 
 			console.log("Building", modulePath, "module ...");
@@ -475,12 +535,69 @@ function executeIn(currentPath, ...args) {
 				resolvePathIn(modulePath, config.runtimeMJSSubPath));
 
 			config.building = false;
+			config.built = true;
+		}
+
+		if (!('tidy' in stages)) {
+			// skip tidy
+		}
+		else {
+			// by reference
+			const paths = config.tsConfigJSON.compilerOptions.paths || {};
+			var changed = false;
+
+			for (var depend of config.depends) {
+				const dependConfig = configMap[depend];
+				const entry = paths[dependConfig.name] || [];
+				const candidate = mod_path.relative(modulePath,
+					mod_path.join(depend, DECLARE_DIR, dependConfig.name +
+					DECLARE_SUFFIX));
+				var index;
+
+				while ((index = entry.indexOf(candidate)) >= 0) {
+					entry.splice(index, 1);
+					changed = true;
+				}
+
+				if (entry.length === 0) {
+					delete paths[dependConfig.name];
+					changed = true;
+				}
+
+				console.log("depend", depend, entry, dependConfig.name);
+			}
+
+			if (changed) {
+				console.log("Tidying", modulePath, "module ...");
+				writeJSONFile(config.tsConfigJSONPath, config.tsConfigJSON);
+			}
+		}
+
+		if (!testing) {
+			// skip testing
+		}
+		else if (!('test' in stages)) {
+			// skip testing
+		}
+		else {
+			console.log("Testing", modulePath, "module ...");
+			mod_child_process.spawnSync("env", [
+					"node",
+					"--input-type=module",
+					"-e",
+					"import { test } from './" + config.runtimeMJSSubPath + "';\n" +
+					"test()",
+				],
+				{
+					cwd: modulePath,
+					stdio: [0, 1, 2],
+				});
 		}
 
 		return (config);
 	}
 
-	buildModuleIn(currentPath);
+	visitModuleIn(currentPath);
 }
 
 module.exports.executeIn = executeIn;

@@ -1,6 +1,6 @@
 {
   "name": "wats",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "WATS - Wraps Around TypeScript",
   "main": "wats.js",
   "bin": {

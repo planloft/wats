@@ -3,6 +3,8 @@
 	"defaultFiles": {
 		"tsconfig.json": {
 			"compilerOptions": {
+				"incremental": false,
+				"composite": false,
 				"target": "es2020",
 				"module": "es2020",
 				"useDefineForClassFields": true,
