@@ -171,6 +171,12 @@ its name, not just its path.  Your mileage may vary.
 
 ## Releases
 
+### 2021-10-06 v1.0.4
+
+Still pre-release quality, but stabilized enough to be useful.
+
+Fixes a testing tree initialization problem.
+    
 ### 2021-10-06 v1.0.3
 
 Still pre-release quality, but stabilized enough to be useful.
