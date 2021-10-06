@@ -318,6 +318,7 @@ function executeIn(currentPath, ...args) {
         mergeJSON(requiredTSConfigJSON, {
             compilerOptions: {
               declaration: false,
+	      paths: {},
             },
             exclude: [
               "./" + RUNTIME_DIR,
