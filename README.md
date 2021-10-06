@@ -171,6 +171,18 @@ its name, not just its path.  Your mileage may vary.
 
 ## Releases
 
+### 2021-10-06 v1.0.3
+
+Still pre-release quality, but stabilized enough to be useful.
+
+A packaging fix.
+    
+### 2021-10-06 v1.0.2
+    
+Still pre-release quality, but stabilized enough to be useful.
+
+Fixes #3.  Attention to whitespace.  Changes defaults and required tsconfig.
+
 ### 2021-10-06 v1.0.1
 
 Still pre-release quality, but being actively used elsewhere.
