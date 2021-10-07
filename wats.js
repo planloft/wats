@@ -1,23 +1,43 @@
 /*
+  CODING STYLE
+
+  PLANLOFT's general coding style for JS is:
+
+  * KNF with swapped major/minor indents
+  * general indent is two spaces
+  * tabs should be expanded
+  * lines must not end in whitespace
+  * line terminator is LF, not CRLF
+  * last line should always end in LF
+  * encoding is UTF-8 with no BOM
+  * keywords are followed by space
+  * return values are always parenthesized
+  * lines are 80 columns
+
+  API USAGE
+
+  Specific to WATS, to make it simple for others to change:
+
+  * synchronous calls only
+  * no callbacks
+
+  Generally though, for JS we use TypeScript with async/await, and build it
+  with WATS!
+
   NAMING CONVENTIONS
 
-  imported modules begin with mod_
-
-  global constants are upper case with underscores
-
-  other constants, variables and function names are camel case.
-
-  path segments end in _FILE/File, _DIR/Dir, or _LINK/Link; as appropriate
-
-  full paths end in _PATH/Path
-
-  relative paths end in _SUB_PATH/SubPath
+  * imported node modules begin with mod_
+  * global constants are upper case with underscores
+  * other constants, variables and function names are camel case.
+  * path segments end in _FILE/File, _DIR/Dir, or _LINK/Link; as appropriate
+  * full paths end in _PATH/Path
+  * relative paths end in _SUB_PATH/SubPath
 */
 const mod_process = require('process');
 const mod_child_process = require('child_process');
 const mod_path = require('path');
 const mod_fs = require('fs');
-const watsJSON_FILE = 'wats.json';
+const WATS_JSON_FILE = 'wats.json';
 const PACKAGE_JSON_FILE = 'package.json';
 const TSCONFIG_JSON_FILE = 'tsconfig.json';
 const TEST_PREFIX = 'test-';
@@ -31,6 +51,14 @@ const DECLARE_DIR = 'declare';
 const RUNTIME_DIR = 'runtime';
 const NODE_MODULES_DIR = 'node_modules';
 const UTF8 = "UTF-8";
+
+function modificationTimeOf(filePath) {
+  return (mod_fs.statSync(filePath).mtime.getTime());
+}
+
+function isFileNewerThan(timestamp, filePath) {
+  return (timestamp < modificationTimeOf(filePath));
+}
 
 function findAncestorFileIn(dirPath, file, fail) {
   var result = null;
@@ -186,24 +214,24 @@ function executeIn(currentPath, ...args) {
     var arg = args.shift();
 
     switch (arg) {
-      case "-l": 
+      case "-l":
       case "--local-only":
         moduleOnly = true;
         localOnly = true;
         break;
-      case "-m": 
+      case "-m":
       case "--module-only":
         moduleOnly = true;
         break;
-      case "-b": 
+      case "-b":
       case "--build":
         stages = { "config": true, "build": true };
         break;
-      case "-t": 
+      case "-t":
       case "--tidy":
         stages = { "config": true, "build": true, "tidy": true };
         break;
-      case "-C": 
+      case "-C":
       case "--config":
         stages = { "config": true };
         break;
@@ -213,13 +241,13 @@ function executeIn(currentPath, ...args) {
   }
 
   /**
-   * A map of canonical paths to internal config objects.
-   * A config is only processed once, so this map is used
-   * to determine if it has started configuring or building yet.
-   */
+    * A map of canonical paths to internal config objects.
+    * A config is only processed once, so this map is used
+    * to determine if it has started configuring or building yet.
+    */
   const configMap = {};
   // Look for a wats.json file in the hierarchy from . up.
-  const watsJSONPath = findAncestorFileIn(currentPath, watsJSON_FILE,
+  const watsJSONPath = findAncestorFileIn(currentPath, WATS_JSON_FILE,
     "create one containing {} in a directory above your typescript module(s)");
   const basePath = mod_path.dirname(watsJSONPath);
 
@@ -265,7 +293,7 @@ function executeIn(currentPath, ...args) {
       return (configMap[modulePath]);
     }
 
-    console.log("Configuring", modulePath, testing ? "..." : "module ...");
+    console.log("Visiting", modulePath, testing ? "..." : "module ...");
 
     const config = {
         modulePath: modulePath,
@@ -318,7 +346,7 @@ function executeIn(currentPath, ...args) {
         mergeJSON(requiredTSConfigJSON, {
             compilerOptions: {
               declaration: false,
-	      paths: {},
+              paths: {},
             },
             exclude: [
               "./" + RUNTIME_DIR,
@@ -476,6 +504,39 @@ function executeIn(currentPath, ...args) {
         console.log("Editing", tsConfigJSONPath, "for building ...");
         writeJSONFile(tsConfigJSONPath, tsConfigJSON);
       }
+
+      var runtimeMJSPath = resolvePathIn(modulePath, config.runtimeMJSSubPath);
+
+      if (!mod_fs.existsSync(runtimeMJSPath)) {
+        // need to build
+      }
+      else {
+        var timestamp = modificationTimeOf(runtimeMJSPath);
+
+        if (isFileNewerThan(timestamp, tsPath)) {
+          // need to build
+        }
+        else if (isFileNewerThan(timestamp, tsConfigJSONPath)) {
+          // need to build
+        }
+        else if (isFileNewerThan(timestamp, packageJSONPath)) {
+          // need to build
+        }
+        else if ((() => {
+              for (var dependPath of config.depends) {
+                if (configMap[dependPath].built > timestamp) {
+                  return (true);
+                }
+              }
+
+              return (false);
+            })()) {
+          // need to rebuild
+        }
+        else {
+          config.built = timestamp;
+        }
+      }
     }
 
     const testingPath = resolvePathIn(modulePath, TESTING_DIR);
@@ -539,11 +600,13 @@ function executeIn(currentPath, ...args) {
           cwd: modulePath,
           stdio: [0, 1, 2],
         });
+      const runtimeMJSPath = resolvePathIn(modulePath,
+        config.runtimeMJSSubPath);
       mod_fs.renameSync(resolvePathIn(modulePath, config.runtimeJSSubPath),
-        resolvePathIn(modulePath, config.runtimeMJSSubPath));
+        runtimeMJSPath);
 
       config.building = false;
-      config.built = true;
+      config.built = modifiedTimeOf(runtimeMJSPath);
     }
 
     if (!('tidy' in stages)) {
