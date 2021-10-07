@@ -606,7 +606,7 @@ function executeIn(currentPath, ...args) {
         runtimeMJSPath);
 
       config.building = false;
-      config.built = modifiedTimeOf(runtimeMJSPath);
+      config.built = modificationTimeOf(runtimeMJSPath);
     }
 
     if (!('tidy' in stages)) {
