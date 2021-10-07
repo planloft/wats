@@ -171,6 +171,12 @@ its name, not just its path.  Your mileage may vary.
 
 ## Releases
 
+### 2021-10-07 v1.0.6
+
+Still pre-release quality, but stabilized enough to be useful.
+
+Fixes bad reference.
+
 ### 2021-10-07 v1.0.5
 
 Still pre-release quality, but stabilized enough to be useful.
