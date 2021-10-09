@@ -1,14 +1,29 @@
 #!/usr/bin/env node
-require('./wats.js').executeIn(process.cwd(), ...((...args) => {
-    args.shift(); // skip over node
+var exitCode = 0;
 
-    while (args.length && args[0].startsWith("-")) {
-      args.shift(); // skip over node option
-    }
+try {
+  require('./wats.js').executeIn(process.cwd(), ...((...args) => {
+      args.shift(); // skip over node
 
-    if (args.length) {
-      args.shift(); // skip over this command
-    }
+      while (args.length && args[0].startsWith("-")) {
+        args.shift(); // skip over node option
+      }
 
-    return (args);
-  })(...process.argv));
+      if (args.length) {
+        args.shift(); // skip over this command
+      }
+
+      return (args);
+    })(...process.argv));
+}
+catch (e) {
+  if (e.exitCode != null) {
+    exitCode = e.exitCode;
+  }
+  else {
+    exitCode = 1;
+    console.log(e);
+  }
+}
+
+process.exit(exitCode);

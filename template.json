@@ -20,13 +20,13 @@
         "alwaysStrict": true,
         "noUnusedLocals": true,
         "noUnusedParameters": true,
-        "noUncheckedIndexedAccess": true,
         "noImplicitOverride": true,
         "noPropertyAccessFromIndexSignature": true
       }
     },
     "package.json": {
-      "version": "0.0.1"
+      "version": "0.0.1",
+      "dependencies": {}
     }
   }
 }
