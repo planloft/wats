@@ -52,8 +52,57 @@ const RUNTIME_DIR = 'runtime';
 const NODE_MODULES_DIR = 'node_modules';
 const UTF8 = "UTF-8";
 
+/**
+ * Invoke the given command with the provided args.  This
+ * uses the first argument as the options object or if it is a
+ * string builds an options object with that as the current working
+ * directory string. If the options.stdio is not set, will
+ * set them to this process's fds.
+ */
+function invokeCommandIn(options, command, ...args) {
+  if (options == null) {
+    options = {};
+  }
+
+  if (typeof(options) === 'string') {
+    options = { cwd: options };
+  }
+
+  if (options.stdio == null) {
+    options.stdio = [ 0, 1, 2];
+  }
+
+  var result = mod_child_process.spawnSync(command, args, options);
+  var failure = result.error;
+
+  if (failure != null) {
+    failure.exitCode = 1;
+  }
+  else if (result.signal != null) {
+    failure = new Error("invoked command was killed with " + result.signal);
+    failure.exitCode = 128 + result.signal;
+  }
+  else if (result.status == null) {
+    failure = new Error("invoked command terminated strangely");
+    failure.exitCode = 1;
+  }
+  else if (result.status != 0) {
+    failure = new Error("invoked command terminated with status: " +
+      result.status);
+    failure.exitCode = result.status;
+  }
+
+  if (failure != null) {
+    throw failure;
+  }
+}
+
 function modificationTimeOf(filePath) {
   return (mod_fs.statSync(filePath).mtime.getTime());
+}
+
+function restoreTimestampsOf(path, stats) {
+  mod_fs.utimesSync(path, stats.atime, stats.mtime);
 }
 
 function isFileNewerThan(timestamp, filePath) {
@@ -90,8 +139,12 @@ function toJSON(o) {
   return (JSON.stringify(o, null, 2) + "\n");
 }
 
+function readUTF8File(path) {
+  return (mod_fs.readFileSync(path, { encoding: UTF8 }));
+}
+
 function readJSONFile(path) {
-  return (JSON.parse(mod_fs.readFileSync(path, { encoding: UTF8 })));
+  return (JSON.parse(readUTF8File(path)));
 }
 
 function writeUTF8File(path, text) {
@@ -480,17 +533,9 @@ function executeIn(currentPath, ...args) {
             if (!mod_fs.existsSync(linkPath)) {
               console.log("Installing", depend, "for local runtime.");
 
-              mod_child_process.spawnSync("env", [
-                  "npm",
-                  "--loglevel", "error",
-                  "--package-lock", "false",
-                  "install",
-                  depend + "@" + packageJSON.dependencies[depend],
-                ],
-                {
-                  cwd: modulePath,
-                  stdio: [0, 1, 2],
-                });
+              invokeCommandIn(modulePath, "npm",
+                "--loglevel", "error", "--package-lock", "false", "install",
+                depend + "@" + packageJSON.dependencies[depend]);
             }
           }
         }
@@ -506,25 +551,30 @@ function executeIn(currentPath, ...args) {
       }
 
       var runtimeMJSPath = resolvePathIn(modulePath, config.runtimeMJSSubPath);
+      var declareTSPath = resolvePathIn(modulePath, DECLARE_DIR,
+        name + DECLARE_SUFFIX);
 
       if (!mod_fs.existsSync(runtimeMJSPath)) {
         // need to build
       }
+      else if (!testing && !mod_fs.existsSync(declareTSPath)) {
+        // need to build
+      }
       else {
-        var timestamp = modificationTimeOf(runtimeMJSPath);
+        var lastBuilt = modificationTimeOf(runtimeMJSPath);
 
-        if (isFileNewerThan(timestamp, tsPath)) {
+        if (isFileNewerThan(lastBuilt, tsPath)) {
           // need to build
         }
-        else if (isFileNewerThan(timestamp, tsConfigJSONPath)) {
+        else if (isFileNewerThan(lastBuilt, tsConfigJSONPath)) {
           // need to build
         }
-        else if (isFileNewerThan(timestamp, packageJSONPath)) {
+        else if (isFileNewerThan(lastBuilt, packageJSONPath)) {
           // need to build
         }
         else if ((() => {
               for (var dependPath of config.depends) {
-                if (configMap[dependPath].built > timestamp) {
+                if (configMap[dependPath].changed > lastBuilt) {
                   return (true);
                 }
               }
@@ -534,7 +584,14 @@ function executeIn(currentPath, ...args) {
           // need to rebuild
         }
         else {
-          config.built = timestamp;
+          config.built = lastBuilt;
+
+          if (testing) {
+            config.changed = config.built;
+          }
+          else {
+            config.changed = modificationTimeOf(declareTSPath);
+          }
         }
       }
     }
@@ -593,20 +650,73 @@ function executeIn(currentPath, ...args) {
 
       console.log("Building", modulePath, "module ...");
 
-      mod_child_process.spawnSync("env", [
-          "tsc",
-        ],
-        {
-          cwd: modulePath,
-          stdio: [0, 1, 2],
-        });
       const runtimeMJSPath = resolvePathIn(modulePath,
         config.runtimeMJSSubPath);
-      mod_fs.renameSync(resolvePathIn(modulePath, config.runtimeJSSubPath),
-        runtimeMJSPath);
+      const runtimeJSPath = resolvePathIn(modulePath,
+        config.runtimeJSSubPath);
+      const declareTSPath = resolvePathIn(modulePath,
+        DECLARE_DIR, config.name + DECLARE_SUFFIX);
+      var declareTSText = null;
+      var declareTSStats = null;
+
+      if (!testing) {
+        try {
+          declareTSText = readUTF8File(declareTSPath);
+          declareTSStats = mod_fs.statSync(declareTSPath);
+        }
+        catch (e) {
+          // ignore, we don't care if its missing
+        }
+      }
+
+      try {
+        invokeCommandIn(modulePath, "tsc");
+      }
+      catch (e) {
+        /*
+          When it fails to compile, we remove all of the generated code,
+          but we restore the old declaration files if they existed.  We
+          don't touch the map files.  The point behind all this is that
+          once the compilation mistakes are fixed, if the d.ts file hasn't
+          changed the dependents won't be rebuilt.
+        */
+        for (var filePath of [runtimeJSPath, runtimeMJSPath, declareTSPath]) {
+          try {
+            mod_fs.unlinkSync(filePath);
+          }
+          catch (e0) {
+            console.log("error", e0.message);
+            // ignore e0
+          }
+        }
+
+        if ((declareTSText != null) && (declareTSStats != null)) {
+          // overwrite prior and restore dates
+          writeUTF8File(declareTSPath, declareTSText);
+          restoreTimestampsOf(declareTSPath, declareTSStats);
+        }
+
+        throw e;
+      }
+
+      mod_fs.renameSync(runtimeJSPath, runtimeMJSPath);
+
+      if ((declareTSText != null) && (declareTSStats != null) &&
+          (readUTF8File(declareTSPath) === declareTSText)) {
+        // File hasn't actually changed, so restore its timestamps.
+        restoreTimestampsOf(declareTSPath, declareTSStats);
+      }
+
+      config.built = modificationTimeOf(runtimeMJSPath);
+
+      if (!testing) {
+        config.changed = modificationTimeOf(declareTSPath);
+      }
+      else {
+        config.changed = config.built;
+      }
 
       config.building = false;
-      config.built = modificationTimeOf(runtimeMJSPath);
     }
 
     if (!('tidy' in stages)) {
@@ -650,17 +760,10 @@ function executeIn(currentPath, ...args) {
     }
     else {
       console.log("Testing", modulePath, "module ...");
-      mod_child_process.spawnSync("env", [
-          "node",
-          "--input-type=module",
-          "-e",
-          "import { test } from './" + config.runtimeMJSSubPath + "';\n" +
-          "test()",
-        ],
-        {
-          cwd: modulePath,
-          stdio: [0, 1, 2],
-        });
+      invokeCommandIn(modulePath, "node", "--enable-source-maps",
+        "--input-type=module", "-e",
+        "import { test } from './" + config.runtimeMJSSubPath + "';\n" +
+        "test();\n");
     }
 
     return (config);
