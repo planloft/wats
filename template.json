@@ -1,6 +1,7 @@
 {
   "generate-git-ignore": true,
-  "defaultFiles": {
+  "generate-svn-ignore": false,
+  "default-files": {
     "tsconfig.json": {
       "compilerOptions": {
         "target": "es2020",
@@ -25,7 +26,10 @@
       }
     },
     "package.json": {
-      "version": "0.0.1",
+      "name": "<forced-to-basename>",
+      "version": "0.1.0",
+      "type": "<forced-to-module>",
+      "main": "<forced-to-runtime-mjs>",
       "dependencies": {}
     }
   }

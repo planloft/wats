@@ -40,6 +40,7 @@ const mod_fs = require('fs');
 const WATS_JSON_FILE = 'wats.json';
 const PACKAGE_JSON_FILE = 'package.json';
 const TSCONFIG_JSON_FILE = 'tsconfig.json';
+const DEFAULT_FILES_KEY = 'default-files';
 const TEST_PREFIX = 'test-';
 const JS_SUFFIX = '.js';
 const MODULE_SUFFIX = '.mjs';
@@ -50,16 +51,9 @@ const TESTING_DIR = 'testing';
 const DECLARE_DIR = 'declare';
 const RUNTIME_DIR = 'runtime';
 const NODE_MODULES_DIR = 'node_modules';
-const UTF8 = "UTF-8";
+const UTF8 = 'UTF-8';
 
-/**
- * Invoke the given command with the provided args.  This
- * uses the first argument as the options object or if it is a
- * string builds an options object with that as the current working
- * directory string. If the options.stdio is not set, will
- * set them to this process's fds.
- */
-function invokeCommandIn(options, command, ...args) {
+function defaultProcessOptions(options) {
   if (options == null) {
     options = {};
   }
@@ -69,8 +63,21 @@ function invokeCommandIn(options, command, ...args) {
   }
 
   if (options.stdio == null) {
-    options.stdio = [ 0, 1, 2];
+    options.stdio = ['inherit', 'inherit', 'inherit'];
   }
+
+  return (options);
+}
+
+/**
+ * Invoke the given command with the provided args.  This
+ * uses the first argument as the options object or if it is a
+ * string builds an options object with that as the current working
+ * directory string. If the options.stdio is not set, will
+ * set them to this process's fds.
+ */
+function invokeCommandIn(options, command, ...args) {
+  options = defaultProcessOptions(options);
 
   var result = mod_child_process.spawnSync(command, args, options);
   var failure = result.error;
@@ -95,6 +102,17 @@ function invokeCommandIn(options, command, ...args) {
   if (failure != null) {
     throw failure;
   }
+
+  return (result);
+}
+
+function readCommandIn(options, command, ...args) {
+  options = defaultProcessOptions(options);
+  options.stdio[1] = 'pipe';
+
+  var child = invokeCommandIn(options, command, ...args);
+
+  return (child.stdout);
 }
 
 function modificationTimeOf(filePath) {
@@ -294,10 +312,10 @@ function executeIn(currentPath, ...args) {
   }
 
   /**
-    * A map of canonical paths to internal config objects.
-    * A config is only processed once, so this map is used
-    * to determine if it has started configuring or building yet.
-    */
+   * A map of canonical paths to internal config objects.
+   * A config is only processed once, so this map is used
+   * to determine if it has started configuring or building yet.
+   */
   const configMap = {};
   // Look for a wats.json file in the hierarchy from . up.
   const watsJSONPath = findAncestorFileIn(currentPath, WATS_JSON_FILE,
@@ -309,36 +327,60 @@ function executeIn(currentPath, ...args) {
   // Read it in.
   const watsJSON = readJSONFile(watsJSONPath);
 
-  // Copy in simple properties from the template if they are missing.
-  for (var key of ["generate-git-ignore"]) {
+  if (basePath === currentPath) {
+    // This has at least made sure that the wats.json file parses ...
+    // but apart from that, we have nothing to do.
+    console.log("In base of development tree: doing nothing.");
+    mod_process.exit(1);
+  }
+
+  // Copy in some properties from the template if they are missing.
+  for (var key of [
+      'generate-git-ignore',
+      'generate-svn-ignore',
+      DEFAULT_FILES_KEY]) {
     if (!(key in watsJSON)) {
       if (!(key in WATS_TEMPLATE)) {
         throw new Error("expected template.json value for " + key);
       }
 
-      watsJSON[key] = WATS_TEMPLATE[key];
+      watsJSON[key] = cloneJSON(WATS_TEMPLATE[key]);
     }
   }
 
-  if (!("defaultFiles" in watsJSON)) {
-    watsJSON.defaultFiles = {};
+  const defaultFiles = watsJSON[DEFAULT_FILES_KEY];
+
+  /*
+    For the default tsconfig.json file, we assume that if the author
+    of the wats.json provided anything, it should be used, with no
+    overrides; otherwise we fallback to the default.  There are still
+    overrides later that will reverse ineligible defaults when the
+    tsconfig.json files are initialized and maintained.
+  */
+  if (TSCONFIG_JSON_FILE in defaultFiles) {
+    // keep it as is
+  }
+  else {
+    defaultFiles[TSCONFIG_JSON_FILE] = WATS_TEMPLATE[DEFAULT_FILES_KEY]
+      [TSCONFIG_JSON_FILE];
   }
 
-  // If it doesn't have default package.json content, give it a template.
-  if (!('defaultFiles["package.json"]' in watsJSON)) {
-    watsJSON.defaultFiles["package.json"] =
-      cloneJSON(WATS_TEMPLATE.defaultFiles["package.json"]);
-  }
+  /*
+    Its a little different for the package.json file: what we want to do
+    here is keep the order of the properties set in the template, but
+    otherwise override with the defaults from the wats.json file, so that
+    author-provided changes are listed after the important header information
+    (placeholders in the template.json retain order for filled fields too).
+  */
+  const watsPackageJSON = cloneJSON(WATS_TEMPLATE[DEFAULT_FILES_KEY]
+    [PACKAGE_JSON_FILE]);
 
-  // If it doesn't have default tsconfig.json content, give it a template.
-  if (!('defaultFiles["tsconfig.json"]' in watsJSON)) {
-    watsJSON.defaultFiles["tsconfig.json"] =
-      cloneJSON(WATS_TEMPLATE.defaultFiles["tsconfig.json"]);
-  }
+  mergeJSON(watsPackageJSON, defaultFiles[PACKAGE_JSON_FILE]);
 
-  if (basePath === currentPath) {
-    console.log("In base of development tree: doing nothing.");
-    mod_process.exit(1);
+  defaultFiles[PACKAGE_JSON_FILE] = watsPackageJSON;
+
+  if (!('dependencies' in defaultFiles[PACKAGE_JSON_FILE])) {
+    defaultFiles[PACKAGE_JSON_FILE].dependencies = {};
   }
 
   function configModuleIn(modulePath, name, testing) {
@@ -428,7 +470,8 @@ function executeIn(currentPath, ...args) {
       if (!mod_fs.existsSync(tsConfigJSONPath)) {
         console.log("Generating missing", tsConfigJSONPath, "this time only.");
 
-        tsConfigJSON = cloneJSON(watsJSON.defaultFiles["tsconfig.json"]);
+        tsConfigJSON = cloneJSON(watsJSON[DEFAULT_FILES_KEY]
+          [TSCONFIG_JSON_FILE]);
 
         mergeJSON(tsConfigJSON, requiredTSConfigJSON);
 
@@ -460,7 +503,7 @@ function executeIn(currentPath, ...args) {
       if (!mod_fs.existsSync(packageJSONPath)) {
         console.log("Generating missing", packageJSONPath, "this time only.");
 
-        packageJSON = cloneJSON(watsJSON.defaultFiles["package.json"]);
+        packageJSON = cloneJSON(watsJSON[DEFAULT_FILES_KEY][PACKAGE_JSON_FILE]);
 
         mergeJSON(packageJSON, requiredPackageJSON);
 
@@ -474,14 +517,64 @@ function executeIn(currentPath, ...args) {
         requireJSON(packageJSON, requiredPackageJSON);
       }
 
-      if (watsJSON["generate-git-ignore"]) {
-        var gitIgnorePath = resolvePathIn(modulePath, ".gitignore");
+      var gitIgnorePath = resolvePathIn(modulePath, ".gitignore");
+      var gitIgnoreDefault = "/" + NODE_MODULES_DIR + "\n";
 
+      if (watsJSON['generate-git-ignore']) {
         if (!mod_fs.existsSync(gitIgnorePath)) {
           console.log("Generating missing", gitIgnorePath, "this time only.");
 
-          writeUTF8File(gitIgnorePath,
-            "/node_modules");
+          writeUTF8File(gitIgnorePath, gitIgnoreDefault);
+        }
+      }
+
+      if (!testing) {
+        var npmIgnorePath = resolvePathIn(modulePath, ".npmignore");
+
+        if (!mod_fs.existsSync(npmIgnorePath)) {
+          var basis;
+
+          if (!mod_fs.existsSync(gitIgnorePath)) {
+            basis = readUTF8File(gitIgnorePath);
+          }
+          else {
+            basis = gitIgnoreDefault;
+          }
+
+          if (!basis.endsWith("\n")) {
+            basis += "\n";
+          }
+
+          console.log("Generating missing", npmIgnorePath, "this time only.");
+
+          writeUTF8File(npmIgnorePath, basis + "/" + TESTING_DIR + "\n");
+        }
+      }
+
+      if (watsJSON['generate-svn-ignore']) {
+        try {
+          invokeCommandIn({
+              cwd: modulePath,
+              encoding: UTF8,
+              stdio: [ 0, 'ignore', 'ignore'],
+            },
+            "svn", "propget",
+            "svn:ignore", ".");
+          // If its there, we don't touch it.
+        }
+        catch (e) {
+          if (e.exitCode == null) {
+            throw e;
+          }
+
+          try {
+            console.log("Altering", modulePath, "svn:ignore");
+            invokeCommandIn(modulePath, "svn", "propset", "svn:ignore",
+              NODE_MODULES_DIR + "\n", ".");
+          }
+          catch (e) {
+            console.log("Possibly not added to svn.  Igoring for now.");
+          }
         }
       }
 
@@ -685,8 +778,7 @@ function executeIn(currentPath, ...args) {
             mod_fs.unlinkSync(filePath);
           }
           catch (e0) {
-            console.log("error", e0.message);
-            // ignore e0
+            // ignore e0 - its expected here
           }
         }
 
