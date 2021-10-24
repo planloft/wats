@@ -2,19 +2,24 @@
 var exitCode = 0;
 
 try {
-  require('./wats.js').main({ cwd: process.cwd(), args = ((...args) => {
-      args.shift(); // skip over node
+	var args = [...process.argv];
 
-      while (args.length && args[0].startsWith("-")) {
-        args.shift(); // skip over node option
-      }
+	args.shift(); // skip over node
 
-      if (args.length) {
-        args.shift(); // skip over this command
-      }
+	while (args.length && args[0].startsWith("-")) {
+		args.shift(); // skip over node option
+	}
 
-      return (args);
-    })(...process.argv));
+	if (args.length) {
+		args.shift(); // skip over this command
+	}
+
+	var scena = {
+			cwd: process.cwd(),
+			args: args,
+		};
+
+  require('./wats.js').main(scena);
 }
 catch (e) {
   if (e.exitCode != null) {
