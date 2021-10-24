@@ -2,7 +2,7 @@
 var exitCode = 0;
 
 try {
-  require('./wats.js').executeIn(process.cwd(), ...((...args) => {
+  require('./wats.js').main({ cwd: process.cwd(), args = ((...args) => {
       args.shift(); // skip over node
 
       while (args.length && args[0].startsWith("-")) {

@@ -33,14 +33,29 @@ It is pronounced like 'rats', with props to Barry Kripke.
 * change to the testing directory `cd testing`
 * ie. you should now be in `mydevroot/mymodule/testing`
 * create a typescript file `vi test-mymodule.ts`
+* give it an `export function main(scena: any) ...`
 * build and run it by typing `wats` in that directory
+* you can also invoke it with `wats . <arg> ...`
+* that will pass `<arg> ...` as `scena.args`
+* [scena](https://github.com/planloft/scena) is its own project
+* you don't need to include it, but it can be useful for type safety.
 
-### Node APIS
+### Main
+
+* you can also export a main function from a module, similar to testing 
+* to invoke that, use `wats --main . <arg> ...`
+* similarly, it will pass `<arg> ...` as `scena.args`
+* in both cases, the `main function` can optionally return a promise
+* the promise will be resolved and any errors caught in the usual way
+* caught errors are processed using their `error.exitCode` property
+* if undefined, the stack trace will be printed and the process will `exit(1)`
+* otherwise, just the message will be printed and it will `exit(exitCode)`
+
+### Node and Other APIS
 
 * if you want to use node APIs from TypeScript, `vi package.json`
 * add eg. `{ ..., "dependencies": { "@types/node": ">=14.0.0" }}
-* build by typing `wats` in that directory
-* if it is test code, it will also run it
+* typing `wats` in that directory will use npm to install it node_modules
 
 ### Other Dependencies
 
@@ -130,8 +145,8 @@ make changes without necessarily using `wats`, or even knowing
 you built with it.
 
 Note that `wats` will remove these <local-link> files when it is
-asked to clean things, so even if you do commit node_modules, if
-you clean first, it will be fine.
+asked to tidy things, so even if you do commit node_modules, if
+you tidy first, it will be fine.
 
 ## Satisfied Requirements
 
@@ -187,6 +202,24 @@ I like to distinguish the test module from the module it is testing in
 its name, not just its path.  Your mileage may vary.
 
 ## Releases
+
+### 2021-10-24 v1.0.9
+
+Still pre-release quality, but stabilized enough to be useful.
+
+This is a point release - it makes reference to `scena`, but that's not
+public yet - its optional in any case.
+
+Strengthens the conditional build support and failure recovery.
+
+Ensures that tests can report their TS position with source map support.
+
+Changes some of the template and configuration to be more consistent.
+
+Fixes planloft/wats#24 - handles deep chain dependencies more elegantly.
+Fixes planloft/wats#23 - formalizes main and test invocation.
+Fixes planloft/wats#21 - supports command line build targets.
+Fixes planloft/wats#20 - more consistent dependency rebuilds.
 
 ### 2021-10-13 v1.0.8
 
