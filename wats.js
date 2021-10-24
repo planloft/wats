@@ -570,6 +570,8 @@ function main(scena) {
         config.execName + JS_SUFFIX),
       config.runtimeMJSSubPath = mod_path.join(RUNTIME_DIR,
         config.execName + MODULE_SUFFIX);
+      config.declareDTSSubPath = mod_path.join(DECLARE_DIR,
+        config.execName + DECLARE_SUFFIX);
       config.tsConfigJSONPath = tsConfigJSONPath;
       config.tsConfigJSON = tsConfigJSON;
 
@@ -579,6 +581,7 @@ function main(scena) {
           name: name,
           type: "module",
           main: config.runtimeMJSSubPath,
+          types: config.declareDTSSubPath,
         };
 
       if (!mod_fs.existsSync(packageJSONPath)) {
@@ -709,7 +712,9 @@ function main(scena) {
               console.log("Installing", depend, "for local runtime.");
 
               invokeCommandIn(modulePath, "npm",
-                "--loglevel", "error", "--package-lock", "false", "install",
+                "--loglevel", "error",
+                "--no-package-lock",
+                "--no-save", "install",
                 depend + "@" + dependVersion);
             }
           }
