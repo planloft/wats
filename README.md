@@ -203,6 +203,15 @@ its name, not just its path.  Your mileage may vary.
 
 ## Releases
 
+### 2021-10-24 v1.0.10
+
+Still pre-release quality, but stabilized enough to be useful.
+
+This is a point release - it adds some test coverage and makes concrete
+reference to `scena` through that (scena remains optional - it is
+just a pattern really).  It also fixes an invocation bug introduced
+by refactoring.
+
 ### 2021-10-24 v1.0.9
 
 Still pre-release quality, but stabilized enough to be useful.
