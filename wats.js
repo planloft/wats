@@ -106,6 +106,37 @@ function invokeCommandIn(options, command, ...args) {
   return (result);
 }
 
+function unlinkPath(path) {
+  var stat;
+
+	try {
+		stat = mod_fs.lstatSync(path);
+	}
+	catch (e) {
+		if (e.code === 'ENOENT') {
+			return; // ignore
+		}
+		else {
+			throw e;
+		}
+	}
+
+  if (stat.isDirectory()) {
+    for (var sub of mod_fs.readdirSync(path, UTF8)) {
+			if ((sub === ".") || (sub === "..")) {
+				throw new Error("unexpected directory entry: " + sub + " in " + path);
+			}
+
+			unlinkPath(mod_path.join(path, sub));
+		}
+
+		mod_fs.rmdirSync(path);
+  }
+	else {
+		mod_fs.unlinkSync(path);
+	}
+}
+
 function readCommandIn(options, command, ...args) {
   options = defaultProcessOptions(options);
   options.stdio[1] = 'pipe';
@@ -276,10 +307,14 @@ function requireJSON(target, source) {
   }
 }
 
-function executeIn(currentPath, ...args) {
+const MAIN_WRAPPER = readUTF8File(require.resolve('./wats-main.js'));
+
+function main(scena) {
+  var currentPath = scena.cwd;
+  var args = scena.args;
   var moduleOnly = false;
   var localOnly = false;
-  var stages = { "config": true, "build": true, "test": true };
+  var stages = { 'config': true, 'build': true, 'test': true };
 
   while (args.length && args[0].startsWith("-")) {
     var arg = args.shift();
@@ -296,20 +331,54 @@ function executeIn(currentPath, ...args) {
         break;
       case "-b":
       case "--build":
-        stages = { "config": true, "build": true };
+        stages = { 'config': true, 'build': true };
         break;
       case "-t":
       case "--tidy":
-        stages = { "config": true, "build": true, "tidy": true };
+        stages = { 'config': true, 'build': true, 'tidy': true };
         break;
       case "-C":
       case "--config":
-        stages = { "config": true };
+        stages = { 'config': true };
+        break;
+      case "-M":
+      case "--main":
+        stages.main = true;
         break;
       default:
         throw new Error("unsupported option: " + arg);
     }
   }
+
+	var invokePath;
+
+	if (!args.length) {
+		invokePath = currentPath;
+	}
+	else {
+		invokePath = mod_path.resolve(currentPath, args.shift());
+	}
+
+	var invokeTesting = (mod_path.basename(invokePath) === TESTING_DIR);
+
+	if ('main' in stages) {
+		if (invokeTesting) {
+			var failure = new Error("The --main option is automatic" +
+				" for testing.");
+
+			failure.exitCode = 64;
+
+			throw failure;
+		}
+	}
+	else if (args.length && !invokeTesting) {
+		var failure = new Error("Use the --main option to invoke a module" +
+			" with arguments.");
+
+		failure.exitCode = 64;
+
+		throw failure;
+	}
 
   /**
    * A map of canonical paths to internal config objects.
@@ -318,20 +387,28 @@ function executeIn(currentPath, ...args) {
    */
   const configMap = {};
   // Look for a wats.json file in the hierarchy from . up.
-  const watsJSONPath = findAncestorFileIn(currentPath, WATS_JSON_FILE,
+  const watsJSONPath = findAncestorFileIn(invokePath, WATS_JSON_FILE,
     "create one containing {} in a directory above your typescript module(s)");
   const basePath = mod_path.dirname(watsJSONPath);
 
-  console.log("Found", watsJSONPath, "for base and defaults.");
+	function reportRelative(somePath) {
+		return ("+/" + mod_path.relative(basePath, somePath));
+	}
+
+  console.log("Found", mod_path.relative(currentPath, watsJSONPath),
+		"(marks development root '+/').");
 
   // Read it in.
   const watsJSON = readJSONFile(watsJSONPath);
 
-  if (basePath === currentPath) {
+  if (basePath === invokePath) {
     // This has at least made sure that the wats.json file parses ...
     // but apart from that, we have nothing to do.
-    console.log("In base of development tree: doing nothing.");
-    mod_process.exit(1);
+		var failure = new Error("In base of development tree: doing nothing.");
+
+		failure.exitCode = 1;
+
+		throw failure;
   }
 
   // Copy in some properties from the template if they are missing.
@@ -383,12 +460,13 @@ function executeIn(currentPath, ...args) {
     defaultFiles[PACKAGE_JSON_FILE].dependencies = {};
   }
 
-  function configModuleIn(modulePath, name, testing) {
+  function configModuleIn(modulePath, name, testing, moduleConfig) {
     if (modulePath in configMap) {
       return (configMap[modulePath]);
     }
 
-    console.log("Visiting", modulePath, testing ? "..." : "module ...");
+    console.log("Visiting", reportRelative(modulePath),
+			testing ? "..." : "module ...");
 
     const config = {
         modulePath: modulePath,
@@ -396,7 +474,8 @@ function executeIn(currentPath, ...args) {
         testing: testing,
         execName: (testing ? TEST_PREFIX : "") + name,
         changed: false, // true when this config is out of date
-        depends: [], // a list of modulePath strings dependent upon
+        localDependencies: [], // a list of local modulePath dependents
+        allDependencies: [], // a list of recursive local dependents
       };
     configMap[modulePath] = config;
 
@@ -408,7 +487,8 @@ function executeIn(currentPath, ...args) {
     config.baseSubPath = baseSubPath;
 
     if (!mod_fs.existsSync(tsPath)) {
-      console.log("Could not find main", baseSubPath, "module file", tsPath);
+      console.log("Could not find main", baseSubPath,
+				"module file", reportRelative(tsPath));
       process.exit(1);
     }
 
@@ -468,7 +548,8 @@ function executeIn(currentPath, ...args) {
       }
 
       if (!mod_fs.existsSync(tsConfigJSONPath)) {
-        console.log("Generating missing", tsConfigJSONPath, "this time only.");
+        console.log("Generating missing", reportRelative(tsConfigJSONPath),
+					"to maintain.");
 
         tsConfigJSON = cloneJSON(watsJSON[DEFAULT_FILES_KEY]
           [TSCONFIG_JSON_FILE]);
@@ -501,7 +582,8 @@ function executeIn(currentPath, ...args) {
         };
 
       if (!mod_fs.existsSync(packageJSONPath)) {
-        console.log("Generating missing", packageJSONPath, "this time only.");
+        console.log("Generating missing", reportRelative(packageJSONPath),
+					"this time only.");
 
         packageJSON = cloneJSON(watsJSON[DEFAULT_FILES_KEY][PACKAGE_JSON_FILE]);
 
@@ -522,7 +604,8 @@ function executeIn(currentPath, ...args) {
 
       if (watsJSON['generate-git-ignore']) {
         if (!mod_fs.existsSync(gitIgnorePath)) {
-          console.log("Generating missing", gitIgnorePath, "this time only.");
+          console.log("Generating missing", reportRelative(gitIgnorePath),
+						"this time only.");
 
           writeUTF8File(gitIgnorePath, gitIgnoreDefault);
         }
@@ -545,7 +628,8 @@ function executeIn(currentPath, ...args) {
             basis += "\n";
           }
 
-          console.log("Generating missing", npmIgnorePath, "this time only.");
+          console.log("Generating missing", reportRelative(npmIgnorePath),
+						"this time only.");
 
           writeUTF8File(npmIgnorePath, basis + "/" + TESTING_DIR + "\n");
         }
@@ -568,7 +652,7 @@ function executeIn(currentPath, ...args) {
           }
 
           try {
-            console.log("Altering", modulePath, "svn:ignore");
+            console.log("Altering", reportRelative(modulePath), "svn:ignore");
             invokeCommandIn(modulePath, "svn", "propset", "svn:ignore",
               NODE_MODULES_DIR + "\n", ".");
           }
@@ -591,13 +675,14 @@ function executeIn(currentPath, ...args) {
         }
 
         for (var depend in packageJSON.dependencies) {
-          let dependBasename = mod_path.basename(depend);
+          var dependBasename = mod_path.basename(depend);
+          var dependVersion = packageJSON.dependencies[depend];
 
           // First, fix node modules.
           var dependPath = resolvePathIn(basePath, depend);
 
           if (!mod_fs.existsSync(nodeModulesPath)) {
-            console.log("Created", nodeModulesPath,
+            console.log("Created", reportRelative(nodeModulesPath),
               "to load/link dependencies.");
             mod_fs.mkdirSync(nodeModulesPath);
           }
@@ -606,7 +691,8 @@ function executeIn(currentPath, ...args) {
 
           if (mod_fs.existsSync(dependPath)) {
             if (!mod_fs.existsSync(linkPath)) {
-              console.log("Linking", linkPath, "for local runtime.");
+              console.log("Linking", reportRelative(linkPath),
+								"for local runtime.");
               mod_fs.symlinkSync(mod_path.relative(nodeModulesPath, dependPath),
                 linkPath);
             }
@@ -615,11 +701,7 @@ function executeIn(currentPath, ...args) {
               // handled already (publicly wired, since its within the module)
             }
             else {
-              tsConfigJSON.compilerOptions.paths[depend] = [
-                  mod_path.relative(modulePath, mod_path.join(dependPath,
-                    DECLARE_DIR, dependBasename + DECLARE_SUFFIX)),
-                ];
-              config.depends.push(dependPath);
+              config.localDependencies.push(dependPath);
             }
           }
           else {
@@ -628,18 +710,56 @@ function executeIn(currentPath, ...args) {
 
               invokeCommandIn(modulePath, "npm",
                 "--loglevel", "error", "--package-lock", "false", "install",
-                depend + "@" + packageJSON.dependencies[depend]);
+                depend + "@" + dependVersion);
             }
           }
         }
       }
 
-      for (var dependPath of config.depends) {
-        configModuleIn(dependPath, mod_path.basename(dependPath), false);
+			/*
+				When constructing all dependencies, we like to keep the order
+				consistent with the order declared (this is why we don't use maps).
+				This relies on the JSON arrays being ordered, which is not always
+				true, but is true in the case of file parsing here.
+			*/
+			config.allDependencies.push(...config.localDependencies);
+
+			if (testing) {
+				// Testing code needs its containing module's dependencies to compile.
+				for (var dependPath of moduleConfig.allDependencies) {
+					if (config.allDependencies.indexOf(dependPath) < 0) {
+						config.allDependencies.push(dependPath);
+					}
+				}
+			}
+
+      for (var dependPath of config.localDependencies) {
+        var dependModule = configModuleIn(dependPath,
+					mod_path.basename(dependPath), false);
+
+				for (var deepPath of dependModule.allDependencies) {
+					if (config.allDependencies.indexOf(deepPath) < 0) {
+						config.allDependencies.push(deepPath);
+					}
+				}
+			}
+
+			/*
+				At this point the config.allDependencies list should contain one copy
+				of each dependency path, in the order that they were first encountered
+				across the tree.
+			*/
+
+			for (var dependPath of config.allDependencies) {
+				tsConfigJSON.compilerOptions.paths[mod_path.basename(dependPath)] = [
+						mod_path.relative(modulePath, mod_path.join(dependPath,
+						DECLARE_DIR, mod_path.basename(dependPath) + DECLARE_SUFFIX)),
+					];
       }
 
       if (savedTSConfigJSONText !== JSON.stringify(tsConfigJSON)) {
-        console.log("Editing", tsConfigJSONPath, "for building ...");
+        console.log("Editing", reportRelative(tsConfigJSONPath),
+					"for building ...");
         writeJSONFile(tsConfigJSONPath, tsConfigJSON);
       }
 
@@ -666,7 +786,7 @@ function executeIn(currentPath, ...args) {
           // need to build
         }
         else if ((() => {
-              for (var dependPath of config.depends) {
+              for (var dependPath of config.allDependencies) {
                 if (configMap[dependPath].changed > lastBuilt) {
                   return (true);
                 }
@@ -692,7 +812,7 @@ function executeIn(currentPath, ...args) {
     const testingPath = resolvePathIn(modulePath, TESTING_DIR);
 
     if ((name !== TESTING_DIR) && mod_fs.existsSync(testingPath)) {
-      config.testingConfig = configModuleIn(testingPath, name, true);
+      config.testingConfig = configModuleIn(testingPath, name, true, config);
     }
 
     return (config);
@@ -721,7 +841,7 @@ function executeIn(currentPath, ...args) {
       testing = false;
     }
 
-    for (var dependPath of config.depends) {
+    for (var dependPath of config.localDependencies) {
       visitModuleIn(dependPath);
     }
 
@@ -741,7 +861,7 @@ function executeIn(currentPath, ...args) {
 
       config.building = true;
 
-      console.log("Building", modulePath, "module ...");
+      console.log("Building", reportRelative(modulePath), "module ...");
 
       const runtimeMJSPath = resolvePathIn(modulePath,
         config.runtimeMJSSubPath);
@@ -819,11 +939,11 @@ function executeIn(currentPath, ...args) {
       const paths = config.tsConfigJSON.compilerOptions.paths || {};
       var changed = false;
 
-      for (var depend of config.depends) {
-        const dependConfig = configMap[depend];
+      for (var dependPath of config.allDependencies) {
+        const dependConfig = configMap[dependPath];
         const entry = paths[dependConfig.name] || [];
         const candidate = mod_path.relative(modulePath,
-          mod_path.join(depend, DECLARE_DIR, dependConfig.name +
+          mod_path.join(dependPath, DECLARE_DIR, dependConfig.name +
           DECLARE_SUFFIX));
         var index;
 
@@ -839,7 +959,8 @@ function executeIn(currentPath, ...args) {
       }
 
       if (changed) {
-        console.log("Tidying", config.tsConfigJSONPath, "for committing.");
+        console.log("Tidying", reportRelative(config.tsConfigJSONPath),
+					"for committing.");
         writeJSONFile(config.tsConfigJSONPath, config.tsConfigJSON);
       }
     }
@@ -851,17 +972,30 @@ function executeIn(currentPath, ...args) {
       // skip testing
     }
     else {
-      console.log("Testing", modulePath, "module ...");
+      console.log("Testing", reportRelative(modulePath), "module ...");
       invokeCommandIn(modulePath, "node", "--enable-source-maps",
-        "--input-type=module", "-e",
-        "import { test } from './" + config.runtimeMJSSubPath + "';\n" +
-        "test();\n");
+        "--input-type=module", "-e", MAIN_WRAPPER,
+				'./' + config.runtimeMJSSubPath); // @todo fix fix fix
     }
 
     return (config);
   }
 
-  visitModuleIn(currentPath);
+	var invokeConfig = visitModuleIn(invokePath);
+
+	if ('main' in stages) {
+		console.log("Running", reportRelative(invokePath), "module ...");
+		invokeCommandIn(currentPath, "node", "--enable-source-maps",
+			"--input-type=module", "-e", MAIN_WRAPPER,
+			mod_path.resolve(invokePath, invokeConfig.runtimeMJSSubPath), ...args);
+	}
+	else if ('test' in stages) {
+	}
+	else {
+		// we're done
+	}
 }
 
-module.exports.executeIn = executeIn;
+module.exports.unlinkPath = unlinkPath;
+module.exports.main = main;
+module.exports.modificationTimeOf = modificationTimeOf;
