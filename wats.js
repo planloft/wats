@@ -109,32 +109,32 @@ function invokeCommandIn(options, command, ...args) {
 function unlinkPath(path) {
   var stat;
 
-	try {
-		stat = mod_fs.lstatSync(path);
-	}
-	catch (e) {
-		if (e.code === 'ENOENT') {
-			return; // ignore
-		}
-		else {
-			throw e;
-		}
-	}
+  try {
+    stat = mod_fs.lstatSync(path);
+  }
+  catch (e) {
+    if (e.code === 'ENOENT') {
+      return; // ignore
+    }
+    else {
+      throw e;
+    }
+  }
 
   if (stat.isDirectory()) {
     for (var sub of mod_fs.readdirSync(path, UTF8)) {
-			if ((sub === ".") || (sub === "..")) {
-				throw new Error("unexpected directory entry: " + sub + " in " + path);
-			}
+      if ((sub === ".") || (sub === "..")) {
+        throw new Error("unexpected directory entry: " + sub + " in " + path);
+      }
 
-			unlinkPath(mod_path.join(path, sub));
-		}
+      unlinkPath(mod_path.join(path, sub));
+    }
 
-		mod_fs.rmdirSync(path);
+    mod_fs.rmdirSync(path);
   }
-	else {
-		mod_fs.unlinkSync(path);
-	}
+  else {
+    mod_fs.unlinkSync(path);
+  }
 }
 
 function readCommandIn(options, command, ...args) {
@@ -243,68 +243,68 @@ function mergeJSON(target, source) {
   }
 }
 
+function complainJSON(stack, complaints, message, should) {
+  complaints.push(message + " at " + stack.join(" ") + " should be " +
+    JSON.stringify(should));
+
+  return (complaints);
+}
+
 /**
  * Ensure the source is in the target.
  *
  * TODO this should really be improved with better traceback and corner cases
  */
-function requireJSON(target, source) {
-  if ((target instanceof Array) && (source instanceof Array)) {
+function requireJSON(stack, complaints, source, target) {
+  if (typeof(source[i]) !== typeof(target[i])) {
+    complaints = complainJSON(stack, complaints, "different types");
+  }
+  else if ((target instanceof Array) && (source instanceof Array)) {
+    stack.push("["); // ] fence match
+
     if (target.length != source.length) {
-      throw new Error("different length array");
+      complaints = complainJSON(stack, complaints, "different length array",
+        target);
+    }
+    else {
+      for (var i = 0; i < source.length; i++) {
+        stack.push(i);
+
+        complaints = requireJSON(stack, complaints, source[i], target[i]);
+
+        stack.pop();
+      }
     }
 
-    for (var i = 0; i < source.length; i++) {
-      if (typeof(source[i]) !== typeof(target[i])) {
-        throw new Error("different index type at " + i);
-      }
-
-      if (source[i] instanceof Array) {
-        requireJSON(target[i], source[i]);
-      }
-      else if (typeof(source[i]) === "object") {
-        requireJSON(target[i], source[i]);
-      }
-      else if (source[i] !== target[i]) {
-        throw new Error("different index value at " + i);
-      }
-      else {
-        // OK
-      }
+    stack.pop();
+  }
+  else if (typeof(source) !== 'object') {
+    if (source !== target) {
+      complaints = complainJSON(stack, complaints, "different values",
+        target);
     }
   }
   else {
-    if (typeof(target) !== "object") {
-      throw new Error("illegal argument");
-    }
+    stack.push("{"); // } fence match
 
-    if (typeof(source) !== "object") {
-      throw new Error("illegal argument");
-    }
+    for (var name in target) {
+      stack.push("\"" + name + "\":");
 
-    for (var name in source) {
-      if (!(name in target)) {
-        throw new Error("missing field " + name);
-      }
-
-      if (typeof(source[name]) !== typeof(target[name])) {
-        throw new Error("incompatible field " + name);
-      }
-
-      if (source[name] instanceof Array) {
-        requireJSON(target[name], source[name]);
-      }
-      else if (typeof(source[name]) === "object") {
-        requireJSON(target[name], source[name]);
-      }
-      else if (target[name] !== source[name]) {
-        throw new Error("different field " + name);
+      if (!(name in source)) {
+        complaints = complainJSON(stack, complaints, "missing property",
+          target[name]);
       }
       else {
-        // OK
+        complaints = requireJSON(stack, complaints, source[name], target[name]);
       }
+
+      stack.pop();
     }
+
+    stack.pop();
   }
+
+  return (complaints);
 }
 
 const MAIN_WRAPPER = readUTF8File(require.resolve('./wats-main.js'));
@@ -350,35 +350,35 @@ function main(scena) {
     }
   }
 
-	var invokePath;
+  var invokePath;
 
-	if (!args.length) {
-		invokePath = currentPath;
-	}
-	else {
-		invokePath = mod_path.resolve(currentPath, args.shift());
-	}
+  if (!args.length) {
+    invokePath = currentPath;
+  }
+  else {
+    invokePath = mod_path.resolve(currentPath, args.shift());
+  }
 
-	var invokeTesting = (mod_path.basename(invokePath) === TESTING_DIR);
+  var invokeTesting = (mod_path.basename(invokePath) === TESTING_DIR);
 
-	if ('main' in stages) {
-		if (invokeTesting) {
-			var failure = new Error("The --main option is automatic" +
-				" for testing.");
+  if ('main' in stages) {
+    if (invokeTesting) {
+      var failure = new Error("The --main option is automatic" +
+        " for testing.");
 
-			failure.exitCode = 64;
+      failure.exitCode = 64;
 
-			throw failure;
-		}
-	}
-	else if (args.length && !invokeTesting) {
-		var failure = new Error("Use the --main option to invoke a module" +
-			" with arguments.");
+      throw failure;
+    }
+  }
+  else if (args.length && !invokeTesting) {
+    var failure = new Error("Use the --main option to invoke a module" +
+      " with arguments.");
 
-		failure.exitCode = 64;
+    failure.exitCode = 64;
 
-		throw failure;
-	}
+    throw failure;
+  }
 
   /**
    * A map of canonical paths to internal config objects.
@@ -391,12 +391,12 @@ function main(scena) {
     "create one containing {} in a directory above your typescript module(s)");
   const basePath = mod_path.dirname(watsJSONPath);
 
-	function reportRelative(somePath) {
-		return ("+/" + mod_path.relative(basePath, somePath));
-	}
+  function reportRelative(somePath) {
+    return ("+/" + mod_path.relative(basePath, somePath));
+  }
 
   console.log("Found", mod_path.relative(currentPath, watsJSONPath),
-		"(marks development root '+/').");
+    "(marks development root '+/').");
 
   // Read it in.
   const watsJSON = readJSONFile(watsJSONPath);
@@ -404,11 +404,11 @@ function main(scena) {
   if (basePath === invokePath) {
     // This has at least made sure that the wats.json file parses ...
     // but apart from that, we have nothing to do.
-		var failure = new Error("In base of development tree: doing nothing.");
+    var failure = new Error("In base of development tree: doing nothing.");
 
-		failure.exitCode = 1;
+    failure.exitCode = 1;
 
-		throw failure;
+    throw failure;
   }
 
   // Copy in some properties from the template if they are missing.
@@ -460,13 +460,32 @@ function main(scena) {
     defaultFiles[PACKAGE_JSON_FILE].dependencies = {};
   }
 
+  function ensureJSON(sourcePath, source, target) {
+    var complaints = requireJSON([], [], source, target);
+
+    if (complaints.length > 0) {
+      var relativePath = reportRelative(sourcePath);
+
+      for (var complaint of complaints) {
+        console.log(relativePath, complaint);
+      }
+
+      var failure = new Error("Failed due to properties mismatch in '" +
+        sourcePath + "'.");
+
+      failure.exitCode = 1;
+
+      throw failure;
+    }
+  }
+
   function configModuleIn(modulePath, name, testing, moduleConfig) {
     if (modulePath in configMap) {
       return (configMap[modulePath]);
     }
 
     console.log("Visiting", reportRelative(modulePath),
-			testing ? "..." : "module ...");
+      testing ? "..." : "module ...");
 
     const config = {
         modulePath: modulePath,
@@ -488,7 +507,7 @@ function main(scena) {
 
     if (!mod_fs.existsSync(tsPath)) {
       console.log("Could not find main", baseSubPath,
-				"module file", reportRelative(tsPath));
+        "module file", reportRelative(tsPath));
       process.exit(1);
     }
 
@@ -549,7 +568,7 @@ function main(scena) {
 
       if (!mod_fs.existsSync(tsConfigJSONPath)) {
         console.log("Generating missing", reportRelative(tsConfigJSONPath),
-					"to maintain.");
+          "to maintain.");
 
         tsConfigJSON = cloneJSON(watsJSON[DEFAULT_FILES_KEY]
           [TSCONFIG_JSON_FILE]);
@@ -561,7 +580,7 @@ function main(scena) {
       else {
         tsConfigJSON = readJSONFile(tsConfigJSONPath);
 
-        requireJSON(tsConfigJSON, requiredTSConfigJSON);
+        ensureJSON(tsConfigJSONPath, tsConfigJSON, requiredTSConfigJSON);
       }
 
       const savedTSConfigJSONText = JSON.stringify(tsConfigJSON);
@@ -586,7 +605,7 @@ function main(scena) {
 
       if (!mod_fs.existsSync(packageJSONPath)) {
         console.log("Generating missing", reportRelative(packageJSONPath),
-					"this time only.");
+          "this time only.");
 
         packageJSON = cloneJSON(watsJSON[DEFAULT_FILES_KEY][PACKAGE_JSON_FILE]);
 
@@ -599,7 +618,7 @@ function main(scena) {
       else {
         packageJSON = readJSONFile(packageJSONPath);
 
-        requireJSON(packageJSON, requiredPackageJSON);
+        ensureJSON(packageJSONPath, packageJSON, requiredPackageJSON);
       }
 
       var gitIgnorePath = resolvePathIn(modulePath, ".gitignore");
@@ -608,7 +627,7 @@ function main(scena) {
       if (watsJSON['generate-git-ignore']) {
         if (!mod_fs.existsSync(gitIgnorePath)) {
           console.log("Generating missing", reportRelative(gitIgnorePath),
-						"this time only.");
+            "this time only.");
 
           writeUTF8File(gitIgnorePath, gitIgnoreDefault);
         }
@@ -632,7 +651,7 @@ function main(scena) {
           }
 
           console.log("Generating missing", reportRelative(npmIgnorePath),
-						"this time only.");
+            "this time only.");
 
           writeUTF8File(npmIgnorePath, basis + "/" + TESTING_DIR + "\n");
         }
@@ -669,7 +688,7 @@ function main(scena) {
         /*
           Process dependencies so that they are linked into our modified
           tsconfig.json and from the node_modules dir.
-        */
+         */
         const nodeModulesPath = resolvePathIn(modulePath, NODE_MODULES_DIR);
 
         // We always like this to be present for building ...
@@ -695,7 +714,7 @@ function main(scena) {
           if (mod_fs.existsSync(dependPath)) {
             if (!mod_fs.existsSync(linkPath)) {
               console.log("Linking", reportRelative(linkPath),
-								"for local runtime.");
+                "for local runtime.");
               mod_fs.symlinkSync(mod_path.relative(nodeModulesPath, dependPath),
                 linkPath);
             }
@@ -721,50 +740,50 @@ function main(scena) {
         }
       }
 
-			/*
-				When constructing all dependencies, we like to keep the order
-				consistent with the order declared (this is why we don't use maps).
-				This relies on the JSON arrays being ordered, which is not always
-				true, but is true in the case of file parsing here.
-			*/
-			config.allDependencies.push(...config.localDependencies);
+      /*
+        When constructing all dependencies, we like to keep the order
+        consistent with the order declared (this is why we don't use maps).
+        This relies on the JSON arrays being ordered, which is not always
+        true, but is true in the case of file parsing here.
+       */
+      config.allDependencies.push(...config.localDependencies);
 
-			if (testing) {
-				// Testing code needs its containing module's dependencies to compile.
-				for (var dependPath of moduleConfig.allDependencies) {
-					if (config.allDependencies.indexOf(dependPath) < 0) {
-						config.allDependencies.push(dependPath);
-					}
-				}
-			}
+      if (testing) {
+        // Testing code needs its containing module's dependencies to compile.
+        for (var dependPath of moduleConfig.allDependencies) {
+          if (config.allDependencies.indexOf(dependPath) < 0) {
+            config.allDependencies.push(dependPath);
+          }
+        }
+      }
 
       for (var dependPath of config.localDependencies) {
         var dependModule = configModuleIn(dependPath,
-					mod_path.basename(dependPath), false);
+          mod_path.basename(dependPath), false);
 
-				for (var deepPath of dependModule.allDependencies) {
-					if (config.allDependencies.indexOf(deepPath) < 0) {
-						config.allDependencies.push(deepPath);
-					}
-				}
-			}
+        for (var deepPath of dependModule.allDependencies) {
+          if (config.allDependencies.indexOf(deepPath) < 0) {
+            config.allDependencies.push(deepPath);
+          }
+        }
+      }
 
-			/*
-				At this point the config.allDependencies list should contain one copy
-				of each dependency path, in the order that they were first encountered
-				across the tree.
-			*/
+      /*
+        At this point the config.allDependencies list should contain one copy
+        of each dependency path, in the order that they were first encountered
+        across the tree.
+       */
 
-			for (var dependPath of config.allDependencies) {
-				tsConfigJSON.compilerOptions.paths[mod_path.basename(dependPath)] = [
-						mod_path.relative(modulePath, mod_path.join(dependPath,
-						DECLARE_DIR, mod_path.basename(dependPath) + DECLARE_SUFFIX)),
-					];
+      for (var dependPath of config.allDependencies) {
+        tsConfigJSON.compilerOptions.paths[mod_path.basename(dependPath)] = [
+            mod_path.relative(modulePath, mod_path.join(dependPath,
+            DECLARE_DIR, mod_path.basename(dependPath) + DECLARE_SUFFIX)),
+          ];
       }
 
       if (savedTSConfigJSONText !== JSON.stringify(tsConfigJSON)) {
         console.log("Editing", reportRelative(tsConfigJSONPath),
-					"for building ...");
+          "for building ...");
         writeJSONFile(tsConfigJSONPath, tsConfigJSON);
       }
 
@@ -897,7 +916,7 @@ function main(scena) {
           don't touch the map files.  The point behind all this is that
           once the compilation mistakes are fixed, if the d.ts file hasn't
           changed the dependents won't be rebuilt.
-        */
+         */
         for (var filePath of [runtimeJSPath, runtimeMJSPath, declareTSPath]) {
           try {
             mod_fs.unlinkSync(filePath);
@@ -965,7 +984,7 @@ function main(scena) {
 
       if (changed) {
         console.log("Tidying", reportRelative(config.tsConfigJSONPath),
-					"for committing.");
+          "for committing.");
         writeJSONFile(config.tsConfigJSONPath, config.tsConfigJSON);
       }
     }
@@ -980,25 +999,25 @@ function main(scena) {
       console.log("Testing", reportRelative(modulePath), "module ...");
       invokeCommandIn(modulePath, "node", "--enable-source-maps",
         "--input-type=module", "-e", MAIN_WRAPPER,
-				'./' + config.runtimeMJSSubPath); // @todo fix fix fix
+        './' + config.runtimeMJSSubPath); // @todo fix fix fix
     }
 
     return (config);
   }
 
-	var invokeConfig = visitModuleIn(invokePath);
+  var invokeConfig = visitModuleIn(invokePath);
 
-	if ('main' in stages) {
-		console.log("Running", reportRelative(invokePath), "module ...");
-		invokeCommandIn(currentPath, "node", "--enable-source-maps",
-			"--input-type=module", "-e", MAIN_WRAPPER,
-			mod_path.resolve(invokePath, invokeConfig.runtimeMJSSubPath), ...args);
-	}
-	else if ('test' in stages) {
-	}
-	else {
-		// we're done
-	}
+  if ('main' in stages) {
+    console.log("Running", reportRelative(invokePath), "module ...");
+    invokeCommandIn(currentPath, "node", "--enable-source-maps",
+      "--input-type=module", "-e", MAIN_WRAPPER,
+      mod_path.resolve(invokePath, invokeConfig.runtimeMJSSubPath), ...args);
+  }
+  else if ('test' in stages) {
+  }
+  else {
+    // we're done
+  }
 }
 
 module.exports.unlinkPath = unlinkPath;

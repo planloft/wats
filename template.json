@@ -30,6 +30,7 @@
       "version": "0.1.0",
       "type": "<forced-to-module>",
       "main": "<forced-to-runtime-mjs>",
+      "types": "<forced-to-declare-dts>",
       "dependencies": {}
     }
   }
