@@ -203,6 +203,12 @@ its name, not just its path.  Your mileage may vary.
 
 ## Releases
 
+### 2021-10-24 v1.0.11
+
+Still pre-release quality, but stabilized enough to be useful.
+
+Provides better error messages when required properties mismatch.
+
 ### 2021-10-24 v1.0.10
 
 Still pre-release quality, but stabilized enough to be useful.

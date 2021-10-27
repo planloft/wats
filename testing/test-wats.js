@@ -103,27 +103,27 @@ function expectIn(checkPath, value) {
 }
 
 function expectExitCode(code, fn) {
-	var failure = undefined;
+  var failure = undefined;
 
-	try {
-		fn();
-	}
-	catch (e) {
-		failure = e;
-	}
+  try {
+    fn();
+  }
+  catch (e) {
+    failure = e;
+  }
 
-	if (failure === undefined) {
-		throw new Error("Function did not fail as expected.");
-	}
+  if (failure === undefined) {
+    throw new Error("Function did not fail as expected.");
+  }
 
-	if (failure.exitCode === undefined) {
-		throw new Error("Function did not set exit code as expected.");
-	}
+  if (failure.exitCode === undefined) {
+    throw new Error("Function did not set exit code as expected.");
+  }
 
-	if (failure.exitCode !== code) {
-		throw new Error("Function did not set exit code to value expected: " +
-			failure.exitCode + " (expected " + code +").");
-	}
+  if (failure.exitCode !== code) {
+    throw new Error("Function did not set exit code to value expected: " +
+      failure.exitCode + " (expected " + code +").");
+  }
 }
 
 function expectTree(map) {
@@ -370,33 +370,33 @@ if (joinCMJSTime !== mod_wats.modificationTimeOf(mod_path.join(devRootPath,
 
 // Make sure we can run with a target ...
 mod_wats.main({
-	cwd: mod_process.cwd(),
-	args: [mod_path.relative(mod_process.cwd(),
-		mod_path.resolve(devRootPath, "chain-a"))],
-	});
+  cwd: mod_process.cwd(),
+  args: [mod_path.relative(mod_process.cwd(),
+    mod_path.resolve(devRootPath, "chain-a"))],
+  });
 
 // Make sure we can't invoke main accidentally ...
 expectExitCode(64, () => {
-		mod_wats.main({
-				cwd: mod_process.cwd(),
-				args: [mod_path.relative(mod_process.cwd(),
-					mod_path.resolve(devRootPath, "chain-a")), "x"]
-			});
-	});
+    mod_wats.main({
+        cwd: mod_process.cwd(),
+        args: [mod_path.relative(mod_process.cwd(),
+          mod_path.resolve(devRootPath, "chain-a")), "x"]
+      });
+  });
 
 // Make sure we can't invoke main on a test package ...
 expectExitCode(64, () => {
-		mod_wats.main({
-				cwd: mod_process.cwd(),
-				args: [mod_path.relative(mod_process.cwd(), "--main",
-					mod_path.resolve(devRootPath, "chain-a/testing"))],
-			});
-	});
+    mod_wats.main({
+        cwd: mod_process.cwd(),
+        args: [mod_path.relative(mod_process.cwd(), "--main",
+          mod_path.resolve(devRootPath, "chain-a/testing"))],
+      });
+  });
 
 run("join-c", "--main");
 
 expectExitCode(65, () => {
-		run("join-c", "--main", ".", 65);
-	});
+    run("join-c", "--main", ".", 65);
+  });
 
 clean();
