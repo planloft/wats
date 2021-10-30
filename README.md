@@ -161,6 +161,55 @@ them
 * conceive each module as a separate potential git repository
 * name output modules `<module>.mjs`, especially in downstream assemblies for the browser
 
+## The `wats.json` File
+
+The `wats.json` file governs your local build configuration - it is 
+typically under separate source code control to that of your modules.  In
+other words, it is expected that you do not publish your `wats.json`, because
+other people will have their own ways of managing their development
+environments.  It 
+
+```json
+{
+  "generate-git-ignore": true, // to generate .git-ignore files
+  "generate-svn-ignore": false, // to manage svn:ignore entries
+  "default-files": {
+    "tsconfig.json": {
+      // template JSON
+    },
+    "package.json": {
+      // template JSON
+    },
+    "<module-sub-path>": "<base-sub-path>",
+    "<module-sub-path>": ["line 1", "line 2", ... ],
+    "<module-sub-path>": {
+      // literal JSON
+    }
+  },
+  "default-files-filter": { "package.json": { "author": { "name": true } } }
+}
+```
+
+The `tsconfig.json` and `package.json` contents come from the
+[template.json](template.json) file in the `wats` distribution.  They can only
+override parts of the template: `wats` will report clashes.
+
+The `<module-sub-path>` entries will be added at the top level of
+any project where the `default-files-filter` matches.  This defaults
+to a pattern where the package.json author field contains a matching
+name, but you can replace that with other filter patterns by defining
+your own default files filter.  These are mostly provided so that you
+can generate boilerplate like LICENSE files into your projects, for
+example:
+
+```
+{
+  "default-files": {
+    "LICENSE": "myboilerplate/LICENSE"
+  }
+}
+```
+
 ## FAQ
 
 1. Why `<module>/testing/` and not `<module>/test/`?  Because
@@ -202,6 +251,13 @@ I like to distinguish the test module from the module it is testing in
 its name, not just its path.  Your mileage may vary.
 
 ## Releases
+
+### 2021-10-30 v1.0.12
+
+Still pre-release quality, but stabilized enough to be useful.
+
+Support declaring default-files to be automatically added if not present,
+and if default-files-filter permits.
 
 ### 2021-10-24 v1.0.11
 

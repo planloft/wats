@@ -4,6 +4,10 @@
   "type": "module",
   "main": "runtime/join-c.mjs",
   "types": "declare/join-c.d.ts",
+  "author": {
+    "name": "Someome Somebody",
+    "email": "someone@some.example.org"
+  },
   "dependencies": {
     "scena": "github:planloft/scena",
     "chain-a": ">=0.1.0",
