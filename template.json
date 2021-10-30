@@ -33,5 +33,7 @@
       "types": "<forced-to-declare-dts>",
       "dependencies": {}
     }
+  },
+  "default-files-filter": {
   }
 }

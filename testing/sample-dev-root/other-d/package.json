@@ -1,0 +1,7 @@
+{
+  "name": "other-d",
+  "version": "1.0.1",
+  "type": "module",
+  "main": "runtime/other-d.mjs",
+  "types": "declare/other-d.d.ts"
+}

@@ -4,6 +4,10 @@
   "type": "module",
   "main": "runtime/chain-a.mjs",
   "types": "declare/chain-a.d.ts",
+  "author": {
+    "name": "Someome Somebody",
+    "email": "someone@some.example.org"
+  },
   "dependencies": {
     "simple": ">=0.1.0"
   }

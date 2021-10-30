@@ -4,6 +4,10 @@
   "type": "module",
   "main": "runtime/node-b.mjs",
   "types": "declare/node-b.d.ts",
+  "author": {
+    "name": "Someome Somebody",
+    "email": "someone@some.example.org"
+  },
   "dependencies": {
     "@types/node": "^16.11.4"
   }

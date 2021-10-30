@@ -142,6 +142,7 @@ expectTree({
       "package.json": false,
       "runtime": false,
       "declare": false,
+      "LICENSE": false,
     },
   });
 
@@ -163,6 +164,7 @@ expectTree({
         "simple.d.ts": true,
         "simple.d.ts.map": true,
       },
+      "LICENSE": true,
     },
   });
 
@@ -345,6 +347,18 @@ if (failure === undefined) {
 if (failure.exitCode != 70) {
   throw new Error("expected node-b/testing to exit with code 70");
 }
+
+/*
+  An external package - it should not get our default-files apart
+  from the usual tsconfig.json maintenance.
+*/
+run("other-d");
+
+expectTree({
+    "other-d": {
+      "LICENSE": false,
+    },
+  });
 
 clean();
 setup();

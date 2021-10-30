@@ -1,1 +1,18 @@
-{}
+{
+  "default-files": {
+    "package.json": {
+      "author": {
+        "name": "Someome Somebody",
+        "email": "someone@some.example.org"
+      }
+    },
+    "LICENSE": "../../LICENSE"
+  },
+  "default-files-filter": {
+    "package.json": {
+      "author": {
+        "email": "someone@some.example.org"
+      }
+    }
+  }
+}

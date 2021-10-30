@@ -41,6 +41,7 @@ const WATS_JSON_FILE = 'wats.json';
 const PACKAGE_JSON_FILE = 'package.json';
 const TSCONFIG_JSON_FILE = 'tsconfig.json';
 const DEFAULT_FILES_KEY = 'default-files';
+const DEFAULT_FILES_FILTER_KEY = DEFAULT_FILES_KEY + "-filter";
 const TEST_PREFIX = 'test-';
 const JS_SUFFIX = '.js';
 const MODULE_SUFFIX = '.mjs';
@@ -307,6 +308,14 @@ function requireJSON(stack, complaints, source, target) {
   return (complaints);
 }
 
+function throwFailure(exitCode, ...message) {
+  var error = new Error(message.join(" "));
+
+  error.exitCode = exitCode;
+
+  throw error;
+}
+
 const MAIN_WRAPPER = readUTF8File(require.resolve('./wats-main.js'));
 
 function main(scena) {
@@ -415,7 +424,8 @@ function main(scena) {
   for (var key of [
       'generate-git-ignore',
       'generate-svn-ignore',
-      DEFAULT_FILES_KEY]) {
+      DEFAULT_FILES_KEY,
+      DEFAULT_FILES_FILTER_KEY]) {
     if (!(key in watsJSON)) {
       if (!(key in WATS_TEMPLATE)) {
         throw new Error("expected template.json value for " + key);
@@ -477,6 +487,86 @@ function main(scena) {
 
       throw failure;
     }
+  }
+
+  function filterJSONMatch(expression, contents) {
+    var result = true;
+
+    if (typeof(expression) !== typeof(contents)) {
+      result = false;
+    }
+    else if (typeof(expression) !== 'object') {
+      result = (expression === contents);
+    }
+    else if (expression instanceof Array) {
+      if (!(contents instanceof Array)) {
+        result = false;
+      }
+      else {
+        for (var left of expression) {
+          result = false;
+
+          for (var right of contents) {
+            if (filterJSONMatch(left, right)) {
+              result = true;
+              break;
+            }
+          }
+
+          if (!result) {
+            break;
+          }
+        }
+      }
+    }
+    else {
+      for (var key in expression) {
+        if (!(key in contents)) {
+          result = false;
+          break;
+        }
+
+        if (expression[key] === true) {
+          // that's as far as we go - presence
+        }
+        else if (!filterJSONMatch(expression[key], contents[key])) {
+          result = false;
+          break;
+        }
+      }
+    }
+
+    return (result);
+  }
+
+  function filterDefaultFilesIn(modulePath) {
+    var filters = watsJSON[DEFAULT_FILES_FILTER_KEY];
+
+    if ((typeof(filters) != "object") || (filters instanceof Array)) {
+      throwFailure(1, reportRelative(watsJSONPath) + "#" +
+        DEFAULT_FILES_FILTER_KEY, "value", "should be a JSON map, not " +
+        filters);
+    }
+
+    var result = true;
+
+    for (var subPath in filters) {
+      var filterPath = resolvePathIn(modulePath, subPath);
+
+      if (!mod_fs.existsSync(filterPath)) {
+        result = false;
+        break;
+      }
+
+      var filterJSON = readJSONFile(filterPath);
+
+      if (!filterJSONMatch(filters[subPath], filterJSON)) {
+        result = false;
+        break;
+      }
+    }
+
+    return (result);
   }
 
   function configModuleIn(modulePath, name, testing, moduleConfig) {
@@ -583,7 +673,7 @@ function main(scena) {
         ensureJSON(tsConfigJSONPath, tsConfigJSON, requiredTSConfigJSON);
       }
 
-      const savedTSConfigJSONText = JSON.stringify(tsConfigJSON);
+      const savedTSConfigJSONText = toJSON(tsConfigJSON);
 
       config.runtimeJSSubPath = mod_path.join(RUNTIME_DIR,
         config.execName + JS_SUFFIX),
@@ -619,6 +709,76 @@ function main(scena) {
         packageJSON = readJSONFile(packageJSONPath);
 
         ensureJSON(packageJSONPath, packageJSON, requiredPackageJSON);
+      }
+
+      if (testing) {
+        // ignore
+      }
+      else if (!filterDefaultFilesIn(modulePath)) {
+        console.log("Skipping", DEFAULT_FILES_KEY, "checks for",
+          reportRelative(modulePath), "because it doesn't pass",
+          DEFAULT_FILES_FILTER_KEY, "(usually intended).");
+      }
+      else {
+        for (var subPath in defaultFiles) {
+          if (subPath === PACKAGE_JSON_FILE) {
+            // special
+          }
+          else if (subPath === TSCONFIG_JSON_FILE) {
+            // special
+          }
+          else {
+            var filePath = resolvePathIn(modulePath, subPath);
+            var template = defaultFiles[subPath];
+            var sourcePath = undefined;
+            var buffer;
+
+            if (typeof(template) === "string") {
+              sourcePath = resolvePathIn(basePath, template);
+
+              buffer = mod_fs.readFileSync(sourcePath);
+            }
+            else if (typeof(template) !== "object") {
+              throw new Error("don't know how to generate from " +
+                JSON.stringify(template));
+            }
+            else if (template instanceof Array) {
+              buffer = Buffer.from(template.join("\n") + "\n", UTF8);
+            }
+            else {
+              buffer = Buffer.from(toJSON(template), UTF8);
+            }
+
+            var current;
+
+            if (mod_fs.existsSync(filePath) &&
+                (current = mod_fs.readFileSync(filePath)) &&
+                current.equals(buffer)) {
+              // do nothing
+            }
+            else if (current === undefined) {
+              mod_fs.writeFileSync(filePath, buffer);
+
+              if (sourcePath === undefined) {
+                console.log("Generating", reportRelative(filePath),
+                  "from", reportRelative(watsJSONPath),
+                  "defaultFiles", subPath, "inline template.");
+              }
+              else {
+                console.log("Generating", reportRelative(filePath),
+                  "from", reportRelative(watsJSONPath),
+                  "defaultFiles", subPath, "template", sourcePath, "file.");
+              }
+            }
+            else {
+              console.log("Note", reportRelative(filePath),
+                "differs from", reportRelative(watsJSONPath),
+                "defaultFiles", subPath, "template",
+                sourcePath ? "file " + reportRelative(sourcePath) + "." :
+                "inline.");
+            }
+          }
+        }
       }
 
       var gitIgnorePath = resolvePathIn(modulePath, ".gitignore");
@@ -781,7 +941,7 @@ function main(scena) {
           ];
       }
 
-      if (savedTSConfigJSONText !== JSON.stringify(tsConfigJSON)) {
+      if (savedTSConfigJSONText !== toJSON(tsConfigJSON)) {
         console.log("Editing", reportRelative(tsConfigJSONPath),
           "for building ...");
         writeJSONFile(tsConfigJSONPath, tsConfigJSON);
