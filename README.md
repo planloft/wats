@@ -167,7 +167,8 @@ The `wats.json` file governs your local build configuration - it is
 typically under separate source code control to that of your modules.  In
 other words, it is expected that you do not publish your `wats.json`, because
 other people will have their own ways of managing their development
-environments.  It 
+environments.  There aren't many options really and mostly an empty `{}` file
+is fine to start with.  In meta JSON, it lays out like this:
 
 ```json
 {
@@ -186,7 +187,7 @@ environments.  It
       // literal JSON
     }
   },
-  "default-files-filter": { "package.json": { "author": { "name": true } } }
+  "default-files-filter": { }
 }
 ```
 
@@ -194,14 +195,10 @@ The `tsconfig.json` and `package.json` contents come from the
 [template.json](template.json) file in the `wats` distribution.  They can only
 override parts of the template: `wats` will report clashes.
 
-The `<module-sub-path>` entries will be added at the top level of
-any project where the `default-files-filter` matches.  This defaults
-to a pattern where the package.json author field contains a matching
-name, but you can replace that with other filter patterns by defining
-your own default files filter.  These are mostly provided so that you
-can generate boilerplate like LICENSE files into your projects, for
-example:
-
+The `<module-sub-path>` entries will be added at the top level of any module
+where the `default-files-filter` matches (by default, all modules).  These are
+mostly provided so that you can generate boilerplate like LICENSE files into
+your projects, for example:
 ```
 {
   "default-files": {
@@ -209,6 +206,36 @@ example:
   }
 }
 ```
+
+If you are working on multiple projects, some of which are 3rd party,
+you might want to put together something like this:
+```
+{
+  "default-files": {
+    "package.json" {
+      "author": {
+        "name": "Somebody Someone",
+        "email": "somebody@example.org"
+      },
+    },
+    "LICENSE": "myboilerplate/LICENSE"
+  },
+  "default-files-filter": {
+    "package.json": {
+      "author": {
+        "email": "somebody@example.org"
+      }
+    }
+  }
+}
+```
+This will do two things:
+* populate your new projects with a `package.json` with author info
+* prevent your `LICENSE` from being copied in unless that author matches
+
+Of course, populating the "author" and other details in the `default-files`
+`package.json` section is generally just a good idea - it saves more messing
+around when setting up new modules.
 
 ## FAQ
 
@@ -251,6 +278,15 @@ I like to distinguish the test module from the module it is testing in
 its name, not just its path.  Your mileage may vary.
 
 ## Releases
+
+### 2021-11-01 v1.0.13
+
+Still pre-release quality, but stabilized enough to be useful.
+
+Typo fixes and clarifications in this `README.md` file.
+
+Correct missing or added types declaration in package.json, rather than
+complain.
 
 ### 2021-10-30 v1.0.12
 
