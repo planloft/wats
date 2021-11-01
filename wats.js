@@ -690,8 +690,11 @@ function main(scena) {
           name: name,
           type: "module",
           main: config.runtimeMJSSubPath,
-          types: config.declareDTSSubPath,
         };
+
+      if (!testing) {
+        requiredPackageJSON["types"] = config.declareDTSSubPath;
+      }
 
       if (!mod_fs.existsSync(packageJSONPath)) {
         console.log("Generating missing", reportRelative(packageJSONPath),
@@ -708,7 +711,38 @@ function main(scena) {
       else {
         packageJSON = readJSONFile(packageJSONPath);
 
+        var packageJSONChanged = false;
+
+        for (var key of ["main", "types"]) {
+          if (!(key in packageJSON) && (key in requiredPackageJSON)) {
+            packageJSON[key] = requiredPackageJSON[key]
+
+            console.log("Editing", reportRelative(packageJSONPath),
+              "to add", key, "property.");
+
+            packageJSONChanged = true;
+          }
+        }
+
+        if (testing) {
+          // Remove "types" from testing packages - they are not intended
+          // for invocation from typescript and the types won't be generated.
+          for (var key of ["types"]) {
+            if (key in packageJSON) {
+              console.log("Editing", reportRelative(packageJSONPath),
+                "to remove", key, "property.");
+
+              packageJSONChanged = true;
+            }
+          }
+        }
+
         ensureJSON(packageJSONPath, packageJSON, requiredPackageJSON);
+
+        if (packageJSONChanged) {
+          writeJSONFile(packageJSONPath, packageJSON);
+          config.changed = true;
+        }
       }
 
       if (testing) {
